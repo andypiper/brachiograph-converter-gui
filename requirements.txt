@@ -3,3 +3,4 @@ paramiko
 cairosvg
 opencv-python
 Pillow
+pyqtdarktheme

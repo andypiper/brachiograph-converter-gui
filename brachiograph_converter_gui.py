@@ -12,6 +12,7 @@ from pathlib import Path
 
 from PySide6 import QtWidgets, QtGui, QtCore
 from PySide6.QtWidgets import QApplication, QMainWindow
+import qdarktheme
 import paramiko
 import cairosvg
 
@@ -78,6 +79,7 @@ class BrachiographConverterMainWindow(QMainWindow):
         app_icon = QtGui.QIcon((str(Path("ui") / "icon.png")))
         QtWidgets.QApplication.setWindowIcon(app_icon)
         QtWidgets.QApplication.setApplicationName("BrachioGraph Image Converter")
+        qdarktheme.setup_theme("dark")
 
         # Load settings from configuration file
         self.load_settings()
