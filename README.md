@@ -41,4 +41,4 @@ Copyright © 2024 [Andy Piper](https://github.com/andypiper).
 
 This project is [MIT](https://mit-license.org/) licensed.
 
-- Streamline icon is [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/).
+* Streamline icon is [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/).
