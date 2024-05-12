@@ -6,17 +6,17 @@ authors = ["Andy Piper <andypiper@omg.lol>"]
 
 [tool.poetry.dependencies]
 python = "^3.11"
-PySide6 = "^6.4.3"
-paramiko = "^2.12.0"
-cairosvg = "^2.7.0"
-numpy = "^1.21.0"
-opencv-python = "^4.5.2"
-Pillow = "^8.2.0"
+PySide6 = "^6.7.0"
+paramiko = "^3.3.1"
+cairosvg = "^2.7.1"
+numpy = "^1.26.0"
+opencv-python = "^4.9.8"
+Pillow = "^10.3.0"
 
 [tool.poetry.dev-dependencies]
-pytest = "^7.2.2"
-black = "^23.3.0"
-flake8 = "^6.0.0"
+pytest = "^8.2.0"
+black = "^24.4.0"
+flake8 = "^7.0.0"
 
 [build-system]
 requires = ["poetry-core"]
