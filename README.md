@@ -4,7 +4,7 @@
 
 A desktop app for converting images to [BrachioGraph](https://www.brachiograph.art/) format.
 
-tl;dr I wanted a GUI for quickly converting images to draw with a BrachioGraph, I really liked [the one that Henry Triplette made](https://github.com/henrytriplette/python-brachiograph-gui), but then PySimpleGUI went to a paid model and I decided to write a similar thing using PySides / QT instead. That thing, is this thing.
+tl;dr I wanted a GUI for quickly converting images to draw with a BrachioGraph, I really liked [the one that Henry Triplette made](https://github.com/henrytriplette/python-brachiograph-gui), but then PySimpleGUI went to a paid model. After thinking about upgrading (or migrating to FreeSimpleGUI), I decided to write a new-but-similar thing using PySides / QT instead. That thing, is this thing.
 
 This app continues to use the `linedraw.py` module for converting images to JSON for the BrachioGraph, [originally written by Lingdong Huang](https://github.com/LingDong-/linedraw).
 
@@ -28,7 +28,7 @@ python brachiograph_converter_gui.py
 * GitHub: [@andypiper](https://github.com/andypiper)
 * Fediverse [@andypiper@macaw.social](https://macaw.social/andypiper)
 
-### Credits
+### Additional credits
 
 * Henry Triplette (original python-brachiograph-gui)
 * Lingdong Huang (linedraw routines)
@@ -41,4 +41,4 @@ Copyright © 2024 [Andy Piper](https://github.com/andypiper).
 
 This project is [MIT](https://mit-license.org/) licensed.
 
-Streamline icon [CC-BY-4.0(https://creativecommons.org/licenses/by/4.0/)]
+Streamline icon [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/)
