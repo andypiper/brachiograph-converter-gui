@@ -1,8 +1,5 @@
 # TODO: figure out directory creation
-# TODO: context handlers (with)
-# TODO: list comprehensions over loops
 # TODO: document code
-# TODO: linting and cleanup
 
 # This module is derived from https://github.com/LingDong-/linedraw, by
 # Lingdong Huang.
@@ -131,7 +128,7 @@ def vectorise(
         try:
             image = Image.open(Path(p))
             break
-        except Exception:
+        except FileNotFoundError:
             pass
     w, h = image.size
 
@@ -175,7 +172,7 @@ def vectorise(
 
     with open(Path(SVG_FOLDER) / f"{pure_filename}.svg", "w") as f:
         f.write(make_svg(lines))
-        f.close()
+
     segments = 0
     for line in lines:
         segments = segments + len(line)
@@ -201,22 +198,25 @@ def get_contours(image, draw_contours=2):
         contours2[i] = [(c[1], c[0]) for c in contours2[i]]
     contours = contours1 + contours2
 
-    for i in range(len(contours)):
-        for j in range(len(contours)):
-            if len(contours[i]) > 0 and len(contours[j]) > 0:
-                if dist_sum(contours[j][0], contours[i][-1]) < 8:
-                    contours[i] = contours[i] + contours[j]
-                    contours[j] = []
+    contours = [
+        (
+            contour1 + contour2
+            if len(contour1) > 0
+            and len(contour2) > 0
+            and dist_sum(contour2[0], contour1[-1]) < 8
+            else contour1
+        )
+        for contour1, contour2 in zip(contours, contours[1:])
+    ]
 
-    for i in range(len(contours)):
-        contours[i] = [contours[i][j] for j in range(0, len(contours[i]), 8)]
+    contours = [contour[::8] for contour in contours]
 
     contours = [c for c in contours if len(c) > 1]
 
-    for i in range(0, len(contours)):
-        contours[i] = [
-            (v[0] * draw_contours, v[1] * draw_contours) for v in contours[i]
-        ]
+    contours = [
+        [(v[0] * draw_contours, v[1] * draw_contours) for v in contour]
+        for contour in contours
+    ]
 
     return contours
 
@@ -278,17 +278,29 @@ def hatch(image, draw_hatch=16):
     line_groups = [horizontal_lines, diagonal_lines]
 
     for line_group in line_groups:
-        for lines in line_group:
-            for lines2 in line_group:
+        line_group = [
+            [
+                (
+                    line1 + line2[1:]
+                    if line1 and line2 and line1[-1] == line2[0]
+                    else line1
+                )
+                for line1, line2 in zip(line_group, line_group[1:])
+            ]
+            for _ in range(len(line_group))
+        ]
 
-                # do items exist in both?
-                if lines and lines2:
-                    # if the last point of first is the same as the first point of of the second
-                    if lines[-1] == lines2[0]:
-                        # then extend the first with all the rest of the points of the second
-                        lines.extend(lines2[1:])
-                        # and empty the second list
-                        lines2.clear()
+        # for lines in line_group:
+        #     for lines2 in line_group:
+
+        #         # do items exist in both?
+        #         if lines and lines2:
+        #             # if the last point of first is the same as the first point of of the second
+        #             if lines[-1] == lines2[0]:
+        #                 # then extend the first with all the rest of the points of the second
+        #                 lines.extend(lines2[1:])
+        #                 # and empty the second list
+        #                 lines2.clear()
 
         # in each line group keep any non-empty lines
         saved_lines = [[line[0], line[-1]] for line in line_group if line]
@@ -312,8 +324,7 @@ def hatch(image, draw_hatch=16):
 def find_edges(image):
     print("Finding edges...")
     if no_cv:
-        # appmask(IM,[F_Blur])
-        apply_mask(image, [F_SobelX, F_SobelY])
+        apply_mask(image, [F_SOBEL_X, F_SOBEL_Y])
     else:
         im = np.array(image)
         im = cv2.GaussianBlur(im, (3, 3), 0)
@@ -452,7 +463,8 @@ def apply_mask(IM, masks):
             px[x, y] = npx[x, y]
 
 
-F_Blur = {
+# Constants for masking
+F_BLUR = {
     (-2, -2): 2,
     (-1, -2): 4,
     (0, -2): 5,
@@ -479,7 +491,7 @@ F_Blur = {
     (1, 2): 4,
     (2, 2): 2,
 }
-F_SobelX = {
+F_SOBEL_X = {
     (-1, -1): 1,
     (0, -1): 0,
     (1, -1): -1,
@@ -490,7 +502,7 @@ F_SobelX = {
     (0, 1): 0,
     (1, 1): -1,
 }
-F_SobelY = {
+F_SOBEL_Y = {
     (-1, -1): 1,
     (0, -1): 2,
     (1, -1): 1,
