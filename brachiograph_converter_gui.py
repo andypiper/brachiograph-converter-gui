@@ -358,8 +358,10 @@ class BrachiographConverterMainWindow(QMainWindow):
                 "Authentication Error",
                 "Authentication failed. Please check your credentials.",
             )
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+        except Exception as exception:
+            QtWidgets.QMessageBox.critical(
+                self, "Error", f"An error occurred: {exception}"
+            )
 
     def open_images_directory(self):
         images_directory = Path("images")
@@ -375,8 +377,8 @@ class BrachiographConverterMainWindow(QMainWindow):
                 subprocess.Popen(["open", str(images_directory)])
             else:
                 subprocess.Popen(["xdg-open", str(images_directory)])
-        except Exception as e:
-            print(f"Error opening directory: {e}")
+        except Exception as exception:
+            print(f"Error opening directory: {exception}")
 
     def update_draw_contours_value(self, value):
         self.draw_contours_value_label.setText(f"{value}")
