@@ -1,6 +1,5 @@
 # TODO: figure out directory creation
 # TODO: context handlers (with)
-# TODO: f-strings
 # TODO: list comprehensions over loops
 # TODO: document code
 # TODO: linting and cleanup
@@ -8,20 +7,19 @@
 # This module is derived from https://github.com/LingDong-/linedraw, by
 # Lingdong Huang.
 
-from random import *
-import math
 import argparse
 import json
+import math
+from pathlib import Path
+import random
 import time
 
 from PIL import Image, ImageDraw, ImageOps
-from pathlib import Path, PureWindowsPath
 
-# TODO: set constants
-# file settings
-export_path = "images/out.svg"
-svg_folder = "images/"
-json_folder = "images/"
+# file constants
+EXPORT_PATH = "images/out.svg"
+SVG_FOLDER = "images/"
+JSON_FOLDER = "images/"
 
 # CV
 no_cv = False
@@ -29,7 +27,7 @@ no_cv = False
 try:
     import numpy as np
     import cv2
-except Exception:
+except ImportError:
     print("Unable to import numpy/openCV. Switching to NO_CV mode.")
     no_cv = True
 
@@ -58,7 +56,7 @@ def image_to_json(
     pure_filename = Path(image_filename).stem
 
     filename = filename = (
-        Path(json_folder) / f"{pure_filename}.json"
+        Path(JSON_FOLDER) / f"{pure_filename}.json"
     )  # may need str cast
     lines_to_file(lines, filename)
 
@@ -121,17 +119,17 @@ def vectorise(
 
     image = None
     possible = [
-        image_filename,
-        "images/" + image_filename,
-        "images/" + image_filename + ".jpg",
-        "images/" + image_filename + ".jpeg",
-        "images/" + image_filename + ".png",
-        "images/" + image_filename + ".tif",
+        Path(image_filename),
+        Path("images") / image_filename,
+        Path("images") / f"{image_filename}.jpg",
+        Path("images") / f"{image_filename}.jpeg",
+        Path("images") / f"{image_filename}.png",
+        Path("images") / f"{image_filename}.tif",
     ]
 
     for p in possible:
         try:
-            image = Image.open(p)
+            image = Image.open(Path(p))
             break
         except Exception:
             pass
@@ -174,11 +172,10 @@ def vectorise(
             lines += hatches
 
     pure_filename = Path(image_filename).stem
-    # pure_filename = pure_filename.strip(['.jpg','.png','.jpeg'])
 
-    f = open(svg_folder + pure_filename + ".svg", "w")
-    f.write(make_svg(lines))
-    f.close()
+    with open(Path(SVG_FOLDER) / f"{pure_filename}.svg", "w") as f:
+        f.write(make_svg(lines))
+        f.close()
     segments = 0
     for line in lines:
         segments = segments + len(line)
