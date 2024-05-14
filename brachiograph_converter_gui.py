@@ -2,7 +2,7 @@
 # TODO: handle image sizing
 # TODO: test on Linux and Windows
 # TODO: figure out a way to handle SVG
-# TODO: other optimisations e.g. reduce paths, threading
+# TODO: other optimisations e.g. threading
 # TODO: send print instruction?
 
 import sys
@@ -244,11 +244,15 @@ class BrachiographConverterMainWindow(QMainWindow):
         self.update_repeat_contours_value(self.repeat_contours_slider.value())
 
     def browse_content_image(self):
+        settings = self.load_settings()
+        last_dir = settings.get("last_image_directory", str(Path.home()))
         file_name, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Select Image", str(Path.home()), IMAGE_EXTENSIONS
+            self, "Select Image", last_dir, IMAGE_EXTENSIONS
         )
-        if file_name is not None:
+        if file_name:
             self.content_image_input.setText(file_name)
+            settings["last_image_directory"] = str(Path(file_name).parent)
+            self.save_settings(settings)
 
     def generate_json(self):
         print("Begin JSON generation")

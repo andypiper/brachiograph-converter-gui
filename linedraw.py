@@ -74,28 +74,52 @@ def make_svg(lines):
 
 # use turtle graphics to visualise how a set of lines will be drawn
 def draw(lines):
-    from tkinter import Tk
-    from turtle import Canvas, RawTurtle, TurtleScreen
+    from tkinter import Tk, Canvas
+    from turtle import TurtleScreen, RawTurtle
 
-    # set up the environment
-    root = Tk()
-    canvas = Canvas(root, width=800, height=800)
+    # Calculate the maximum and minimum coordinates of the lines
+    max_x = max(max(point[0] for point in line) for line in lines)
+    min_x = min(min(point[0] for point in line) for line in lines)
+    max_y = max(max(point[1] for point in line) for line in lines)
+    min_y = min(min(point[1] for point in line) for line in lines)
+
+    # Calculate the range of coordinates
+    range_x = max_x - min_x
+    range_y = max_y - min_y
+
+    # Set up the Tkinter window and canvas
+    window = Tk()
+    canvas = Canvas(window, width=800, height=800)
     canvas.pack()
 
-    s = TurtleScreen(canvas)
-    t = RawTurtle(canvas)
-    t.speed(0)
-    t.width(1)
+    # Set up the Turtle screen and turtle
+    screen = TurtleScreen(canvas)
+    turtle = RawTurtle(screen)
+    turtle.speed(0)  # Set the turtle's speed to the fastest
+    turtle.hideturtle()  # Hide the turtle cursor
 
+    # Calculate the scaling factors to fit the drawing within the window
+    scale_x = 750 / range_x
+    scale_y = 750 / range_y
+
+    # Calculate the offset to center the drawing
+    offset_x = (800 - range_x * scale_x) / 2
+    offset_y = (800 - range_y * scale_y) / 2
+
+    # Iterate over each line and draw it
     for line in lines:
+        turtle.penup()
         x, y = line[0]
-        t.up()
-        t.goto(x * 800 / 1024 - 400, -(y * 800 / 1024 - 400))
-        for point in line:
-            t.down()
-            t.goto(point[0] * 800 / 1024 - 400, -(point[1] * 800 / 1024 - 400))
+        turtle.goto((x - min_x) * scale_x + offset_x, (max_y - y) * scale_y + offset_y)
+        turtle.pendown()
+        for point in line[1:]:
+            x, y = point
+            turtle.goto(
+                (x - min_x) * scale_x + offset_x, (max_y - y) * scale_y + offset_y
+            )
 
-    s.mainloop()
+    # Start the Tkinter event loop
+    window.mainloop()
 
 
 # -------------- conversion control --------------
@@ -185,7 +209,7 @@ def get_contours(image, draw_contours=2):
     for i in range(len(contours)):
         for j in range(len(contours)):
             if len(contours[i]) > 0 and len(contours[j]) > 0:
-                if dist_sum(contours[j][0], contours[i][-1]) < 8:
+                if distance_sum(contours[j][0], contours[i][-1]) < 8:
                     contours[i] = contours[i] + contours[j]
                     contours[j] = []
 
@@ -354,10 +378,10 @@ def sort_lines(lines):
         closest_line = min(
             lines,
             key=lambda line: min(
-                dist_sum(line[0], last_point), dist_sum(line[-1], last_point)
+                distance_sum(line[0], last_point), distance_sum(line[-1], last_point)
             ),
         )
-        if dist_sum(closest_line[0], last_point) > dist_sum(
+        if distance_sum(closest_line[0], last_point) > distance_sum(
             closest_line[-1], last_point
         ):
             closest_line.reverse()
@@ -382,7 +406,7 @@ def mid_point(*args):
     return xs / len(args), ys / len(args)
 
 
-def dist_sum(*points):
+def distance_sum(*points):
     return sum(
         math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1])
         for i in range(1, len(points))
