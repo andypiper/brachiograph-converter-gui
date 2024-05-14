@@ -1,8 +1,8 @@
-# TODO: document code
-# TODO: webp?
+# TODO: document it more fully
 
-# This module is derived from https://github.com/LingDong-/linedraw, by
-# Lingdong Huang.
+# This is derived from https://github.com/LingDong-/linedraw
+# by Lingdong Huang
+# and from Daniele Procida's modifications for BrachioGraph
 
 import os
 import json
@@ -72,7 +72,7 @@ def make_svg(lines):
     return out
 
 
-# we can use turtle graphics to visualise how a set of lines will be drawn
+# use turtle graphics to visualise how a set of lines will be drawn
 def draw(lines):
     from tkinter import Tk
     from turtle import Canvas, RawTurtle, TurtleScreen
@@ -137,7 +137,7 @@ def vectorise(
 
     w, h = image.size
 
-    # convert the image to greyscale and max contrast
+    # one-shot convert image to greyscale and max contrast
     image = ImageOps.autocontrast(image.convert("L"), 10)
     lines = []
 
