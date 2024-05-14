@@ -28,7 +28,7 @@ DEFAULT_SETTINGS = {
     "sftp_password": "",
     "sftp_directory": "",
 }
-IMAGE_EXTENSIONS = "Images (*.jpg *.jpeg *.png *.tif *.tiff)"
+IMAGE_EXTENSIONS = "Images (*.jpg *.jpeg *.png *.tif *.tiff *.webp)"
 JSON_EXTENSION = "JSON files (*.json)"
 CONFIG_FILE = Path.home() / ".brachiograph_converter.json"
 

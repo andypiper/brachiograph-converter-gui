@@ -1,32 +1,34 @@
-# TODO: figure out directory creation
 # TODO: document code
+# TODO: webp?
 
 # This module is derived from https://github.com/LingDong-/linedraw, by
 # Lingdong Huang.
 
-import argparse
+import os
 import json
+import time
 import math
 from pathlib import Path
-import random
-import time
+from concurrent.futures import ThreadPoolExecutor
+from PIL import Image, ImageOps
 
-from PIL import Image, ImageDraw, ImageOps
-
-# file constants
+# constants
 EXPORT_PATH = "images/out.svg"
 SVG_FOLDER = "images/"
 JSON_FOLDER = "images/"
+NO_CV_MODE = False
 
-# CV
-no_cv = False
+# Ensure directories exist
+os.makedirs(SVG_FOLDER, exist_ok=True)
+os.makedirs(JSON_FOLDER, exist_ok=True)
 
 try:
     import numpy as np
     import cv2
-except ImportError:
+except ImportError as import_error:
+    print(f"ImportError: {import_error}")
     print("Unable to import numpy/openCV. Switching to NO_CV mode.")
-    no_cv = True
+    NO_CV_MODE = True
 
 
 # -------------- output functions --------------
@@ -52,9 +54,7 @@ def image_to_json(
 
     pure_filename = Path(image_filename).stem
 
-    filename = filename = (
-        Path(JSON_FOLDER) / f"{pure_filename}.json"
-    )  # may need str cast
+    filename = filename = Path(JSON_FOLDER) / f"{pure_filename}.json"
     lines_to_file(lines, filename)
 
 
@@ -63,21 +63,18 @@ def make_svg(lines):
     width = math.ceil(max([max([p[0] * 0.5 for p in l]) for l in lines]))
     height = math.ceil(max([max([p[1] * 0.5 for p in l]) for l in lines]))
     out = f'<svg xmlns="http://www.w3.org/2000/svg" height="{height}px" width="{width}px" version="1.1">'
-
-    for l in lines:
-        l = ",".join([str(p[0] * 0.5) + "," + str(p[1] * 0.5) for p in l])
-        out += (
-            '<polyline points="'
-            + l
-            + '" stroke="black" stroke-width="1" fill="none" />\n'
-        )
+    out += "".join(
+        f'<polyline points="{",".join(f"{p[0] * 0.5},{p[1] * 0.5}" for p in l)}" '
+        'stroke="black" stroke-width="1" fill="none" />\n'
+        for l in lines
+    )
     out += "</svg>"
     return out
 
 
 # we can use turtle graphics to visualise how a set of lines will be drawn
 def draw(lines):
-    from tkinter import Tk, LEFT
+    from tkinter import Tk
     from turtle import Canvas, RawTurtle, TurtleScreen
 
     # set up the environment
@@ -86,7 +83,6 @@ def draw(lines):
     canvas.pack()
 
     s = TurtleScreen(canvas)
-
     t = RawTurtle(canvas)
     t.speed(0)
     t.width(1)
@@ -103,6 +99,10 @@ def draw(lines):
 
 
 # -------------- conversion control --------------
+def resize_image(image, resolution, draw_option, h, w):
+    return image.resize(
+        (int(resolution / draw_option), int(resolution / draw_option * h / w))
+    )
 
 
 def vectorise(
@@ -115,69 +115,51 @@ def vectorise(
 ):
 
     image = None
-    possible = [
+    possible_paths = [
         Path(image_filename),
         Path("images") / image_filename,
         Path("images") / f"{image_filename}.jpg",
         Path("images") / f"{image_filename}.jpeg",
         Path("images") / f"{image_filename}.png",
         Path("images") / f"{image_filename}.tif",
+        Path("images") / f"{image_filename}.tiff",
+        Path("images") / f"{image_filename}.webp",
     ]
 
-    for p in possible:
+    for p in possible_paths:
         try:
-            image = Image.open(Path(p))
+            image = Image.open(p)
             break
-        except FileNotFoundError:
+        except Exception:
             pass
+    else:
+        raise FileNotFoundError(f"Image file not found: {image_filename}")
+
     w, h = image.size
 
-    # convert the image to greyscale
-    image = image.convert("L")
-
-    # maximise contrast
-    image = ImageOps.autocontrast(image, 10)
-
+    # convert the image to greyscale and max contrast
+    image = ImageOps.autocontrast(image.convert("L"), 10)
     lines = []
 
-    if draw_contours:
-        contours = sort_lines(
-            get_contours(
-                image.resize(
-                    (
-                        int(resolution / draw_contours),
-                        int(resolution / draw_contours * h / w),
-                    )
-                ),
-                draw_contours,
-            )
-        )
-        for r in range(repeat_contours):
-            lines += contours
+    with ThreadPoolExecutor() as executor:
+        if draw_contours:
+            image_resized = resize_image(image, resolution, draw_contours, h, w)
+            contours = executor.submit(
+                get_contours, image_resized, draw_contours
+            ).result()
+            lines += contours * repeat_contours
 
-    if draw_hatch:
-        hatches = sort_lines(
-            hatch(
-                # image,
-                image.resize(
-                    (int(resolution / draw_hatch), int(resolution / draw_hatch * h / w))
-                ),
-                draw_hatch,
-            )
-        )
-        for r in range(repeat_hatch):
-            lines += hatches
-
+        if draw_hatch:
+            image_resized = resize_image(image, resolution, draw_hatch, h, w)
+            hatches = executor.submit(hatch, image_resized, draw_hatch).result()
+            lines += hatches * repeat_hatch
     pure_filename = Path(image_filename).stem
 
     with open(Path(SVG_FOLDER) / f"{pure_filename}.svg", "w") as f:
         f.write(make_svg(lines))
 
-    segments = 0
-    for line in lines:
-        segments = segments + len(line)
-    print(len(lines), "strokes,", segments, "points.")
-    print("Done.")
+    segments = sum(len(line) for line in lines)
+    print(f"{len(lines)} strokes, {segments} points. Done.")
     return lines
 
 
@@ -187,41 +169,40 @@ def vectorise(
 def get_contours(image, draw_contours=2):
     print("Generating contours...")
     image = find_edges(image)
-    IM1 = image.copy()
-    IM2 = image.rotate(-90, expand=True).transpose(Image.FLIP_LEFT_RIGHT)
+    IM1 = np.array(image)
+    IM2 = np.rot90(IM1, 3)
+    IM2 = np.flip(IM2, axis=1)
+
     dots1 = get_dots(IM1)
-    contours1 = connect_dots(dots1)
     dots2 = get_dots(IM2)
+    contours1 = connect_dots(dots1)
     contours2 = connect_dots(dots2)
 
     for i in range(len(contours2)):
         contours2[i] = [(c[1], c[0]) for c in contours2[i]]
     contours = contours1 + contours2
 
-    contours = [
-        (
-            contour1 + contour2
-            if len(contour1) > 0
-            and len(contour2) > 0
-            and dist_sum(contour2[0], contour1[-1]) < 8
-            else contour1
-        )
-        for contour1, contour2 in zip(contours, contours[1:])
-    ]
+    for i in range(len(contours)):
+        for j in range(len(contours)):
+            if len(contours[i]) > 0 and len(contours[j]) > 0:
+                if dist_sum(contours[j][0], contours[i][-1]) < 8:
+                    contours[i] = contours[i] + contours[j]
+                    contours[j] = []
 
-    contours = [contour[::8] for contour in contours]
+    for i in range(len(contours)):
+        contours[i] = [contours[i][j] for j in range(0, len(contours[i]), 8)]
 
     contours = [c for c in contours if len(c) > 1]
 
-    contours = [
-        [(v[0] * draw_contours, v[1] * draw_contours) for v in contour]
-        for contour in contours
-    ]
+    for i in range(len(contours)):
+        contours[i] = [
+            (v[0] * draw_contours, v[1] * draw_contours) for v in contours[i]
+        ]
 
     return contours
 
 
-# improved, faster and easier to understand hatching
+# hatching
 def hatch(image, draw_hatch=16):
 
     t0 = time.time()
@@ -232,9 +213,7 @@ def hatch(image, draw_hatch=16):
     horizontal_lines = []
     diagonal_lines = []
     for x0 in range(w):
-        # print("reading x", x0)
         for y0 in range(h):
-            # print("    reading y", x0)
             x = x0 * draw_hatch
             y = y0 * draw_hatch
 
@@ -290,18 +269,6 @@ def hatch(image, draw_hatch=16):
             for _ in range(len(line_group))
         ]
 
-        # for lines in line_group:
-        #     for lines2 in line_group:
-
-        #         # do items exist in both?
-        #         if lines and lines2:
-        #             # if the last point of first is the same as the first point of of the second
-        #             if lines[-1] == lines2[0]:
-        #                 # then extend the first with all the rest of the points of the second
-        #                 lines.extend(lines2[1:])
-        #                 # and empty the second list
-        #                 lines2.clear()
-
         # in each line group keep any non-empty lines
         saved_lines = [[line[0], line[-1]] for line in line_group if line]
         line_group.clear()
@@ -311,9 +278,9 @@ def hatch(image, draw_hatch=16):
 
     t2 = time.time()
 
-    print("Hatching:    ", t1 - t0)
-    print("Wrangling:   ", t2 - t1)
-    print("Total:       ", t2 - t0)
+    print(f"Hatching: {t1 - t0}")
+    print(f"Wrangling: {t2 - t1}")
+    print(f"Total: {t2 - t0}")
 
     return lines
 
@@ -323,7 +290,7 @@ def hatch(image, draw_hatch=16):
 
 def find_edges(image):
     print("Finding edges...")
-    if no_cv:
+    if NO_CV_MODE:
         apply_mask(image, [F_SOBEL_X, F_SOBEL_Y])
     else:
         im = np.array(image)
@@ -333,20 +300,17 @@ def find_edges(image):
     return image.point(lambda p: p > 128 and 255)
 
 
-def get_dots(IM):
+def get_dots(image):
     print("Getting contour points...")
-    PX = IM.load()
+    h, w = image.shape
     dots = []
-    w, h = IM.size
+
     for y in range(h - 1):
         row = []
         for x in range(1, w):
-            if PX[x, y] == 255:
-                if len(row) > 0:
-                    if x - row[-1][0] == row[-1][-1] + 1:
-                        row[-1] = (row[-1][0], row[-1][-1] + 1)
-                    else:
-                        row.append((x, 0))
+            if image[y, x] == 255:
+                if row and x - row[-1][0] == row[-1][1] + 1:
+                    row[-1] = (row[-1][0], row[-1][1] + 1)
                 else:
                     row.append((x, 0))
         dots.append(row)
@@ -356,38 +320,26 @@ def get_dots(IM):
 def connect_dots(dots):
     print("Connecting contour points...")
     contours = []
-    for y in range(len(dots)):
-        for x, v in dots[y]:
+    for y, row in enumerate(dots):
+        for x, v in row:
             if v > -1:
                 if y == 0:
                     contours.append([(x, y)])
                 else:
-                    closest = -1
-                    cdist = 100
-                    for x0, v0 in dots[y - 1]:
-                        if abs(x0 - x) < cdist:
-                            cdist = abs(x0 - x)
-                            closest = x0
-
-                    if cdist > 3:
+                    closest, closest_dist = min(
+                        ((x0, v0) for x0, v0 in dots[y - 1]),
+                        key=lambda point: abs(point[0] - x),
+                        default=(None, None),
+                    )
+                    if closest is None or abs(closest - x) > 3:
                         contours.append([(x, y)])
                     else:
-                        found = 0
-                        for i in range(len(contours)):
-                            if contours[i][-1] == (closest, y - 1):
-                                contours[i].append(
-                                    (
-                                        x,
-                                        y,
-                                    )
-                                )
-                                found = 1
+                        for contour in contours:
+                            if contour[-1] == (closest, y - 1):
+                                contour.append((x, y))
                                 break
-                        if found == 0:
+                        else:
                             contours.append([(x, y)])
-        for c in contours:
-            if c[-1][1] < y - 1 and len(c) < 4:
-                contours.remove(c)
     return contours
 
 
@@ -396,23 +348,22 @@ def connect_dots(dots):
 
 def sort_lines(lines):
     print("Optimizing stroke sequence...")
-    clines = lines[:]
-    slines = [clines.pop(0)]
-    while clines != []:
-        x, s, r = None, 1000000, False
-        for l in clines:
-            d = dist_sum(l[0], slines[-1][-1])
-            dr = dist_sum(l[-1], slines[-1][-1])
-            if d < s:
-                x, s, r = l[:], d, False
-            if dr < s:
-                x, s, r = l[:], s, True
-
-        clines.remove(x)
-        if r is True:
-            x = x[::-1]
-        slines.append(x)
-    return slines
+    sorted_lines = [lines.pop(0)]
+    while lines:
+        last_point = sorted_lines[-1][-1]
+        closest_line = min(
+            lines,
+            key=lambda line: min(
+                dist_sum(line[0], last_point), dist_sum(line[-1], last_point)
+            ),
+        )
+        if dist_sum(closest_line[0], last_point) > dist_sum(
+            closest_line[-1], last_point
+        ):
+            closest_line.reverse()
+        sorted_lines.append(closest_line)
+        lines.remove(closest_line)
+    return sorted_lines
 
 
 def lines_to_file(lines, filename):
@@ -431,13 +382,10 @@ def mid_point(*args):
     return xs / len(args), ys / len(args)
 
 
-def dist_sum(*args):
+def dist_sum(*points):
     return sum(
-        [
-            ((args[i][0] - args[i - 1][0]) ** 2 + (args[i][1] - args[i - 1][1]) ** 2)
-            ** 0.5
-            for i in range(1, len(args))
-        ]
+        math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1])
+        for i in range(1, len(points))
     )
 
 
