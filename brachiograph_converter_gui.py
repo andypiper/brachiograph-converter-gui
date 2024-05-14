@@ -1,7 +1,8 @@
 # TODO: better help info / commenting
+# TODO: handle image sizing
 # TODO: test on Linux and Windows
 # TODO: figure out a way to handle SVG
-# TODO: other optimisations e.g. reduce paths
+# TODO: other optimisations e.g. reduce paths, threading
 # TODO: send print instruction?
 
 import sys
@@ -15,7 +16,7 @@ from PySide6.QtWidgets import QApplication, QMainWindow
 import paramiko
 import cairosvg
 
-from linedraw import *
+from linedraw import image_to_json
 
 SIZE_LIMIT = 3 * 1024 * 1024  # 3 MB
 DEFAULT_SETTINGS = {
@@ -27,7 +28,7 @@ DEFAULT_SETTINGS = {
     "sftp_password": "",
     "sftp_directory": "",
 }
-IMAGE_EXTENSIONS = "Images (*.jpg *.jpeg *.png *.tif *.tiff)"
+IMAGE_EXTENSIONS = "Images (*.jpg *.jpeg *.png *.tif *.tiff *.webp)"
 JSON_EXTENSION = "JSON files (*.json)"
 CONFIG_FILE = Path.home() / ".brachiograph_converter.json"
 
