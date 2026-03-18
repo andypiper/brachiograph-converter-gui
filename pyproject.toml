@@ -1,23 +1,51 @@
-[tool.poetry]
+[project]
 name = "brachiograph-image-converter"
 version = "0.1.0"
 description = "BrachioGraph Image Converter"
-authors = ["Andy Piper <andypiper@omg.lol>"]
+authors = [
+    {name = "Andy Piper", email = "andypiper@omg.lol"},
+]
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
+# PyGObject (gi.repository) must be installed via the system package manager
+# — it is NOT listed here because it cannot be built reliably by pip/uv.
+#   Debian/Ubuntu:  sudo apt install python3-gi python3-gi-cairo
+#                               gir1.2-gtk-4.0 gir1.2-adw-1
+#   Fedora:         sudo dnf install python3-gobject gtk4 libadwaita
+#
+# All other runtime dependencies are managed by uv.
+dependencies = [
+    "paramiko>=3.5.0",
+    "cairosvg>=2.7.1",
+    # numpy 2.x is supported; pin <3 as a safety guard
+    "numpy>=2.0,<3",
+    "opencv-python>=4.10.0",
+    "Pillow>=11.0.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-PyGObject = "^3.48.0"
-paramiko = "^3.3.1"
-cairosvg = "^2.7.1"
-numpy = "^1.26.0"
-opencv-python = "^4.9.8"
-Pillow = "^10.3.0"
+[project.scripts]
+brachiograph-converter = "brachiograph_converter_gui:main"
 
-[tool.poetry.dev-dependencies]
-pytest = "^8.2.0"
-black = "^24.4.0"
-flake8 = "^7.0.0"
+[dependency-groups]
+dev = [
+    "pytest>=8.2.0",
+    "black>=24.4.0",
+    "flake8>=7.0.0",
+]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# Include top-level modules and the UI assets the app references at runtime
+include = [
+    "brachiograph_converter_gui.py",
+    "linedraw.py",
+    "ui/blank.png",
+    "ui/icon.png",
+]
+
+[tool.uv]
+package = true

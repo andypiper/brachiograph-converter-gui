@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="uk.andypiper.brachiograph-converter"
+          path="/uk/andypiper/brachiograph-converter/">
+
+    <!-- Conversion parameters -->
+    <key name="draw-contours" type="i">
+      <default>2</default>
+      <summary>Contour detail level</summary>
+      <description>
+        Controls edge-detection detail. Default 2; try values 0–10.
+        Smaller values produce more detail.
+      </description>
+    </key>
+
+    <key name="draw-hatch" type="i">
+      <default>16</default>
+      <summary>Hatch spacing</summary>
+      <description>
+        Space between hatching lines used to represent shading. Default 16;
+        try values 8–16. Smaller values produce more detail.
+      </description>
+    </key>
+
+    <key name="repeat-contours" type="i">
+      <default>0</default>
+      <summary>Repeat contours</summary>
+      <description>
+        Number of times to repeat outer edge lines so they stand out in the
+        final drawing. Default 0.
+      </description>
+    </key>
+
+    <!-- SFTP upload settings -->
+    <key name="sftp-hostname" type="s">
+      <default>''</default>
+      <summary>SFTP hostname</summary>
+      <description>Hostname or IP address of the BrachioGraph device.</description>
+    </key>
+
+    <key name="sftp-user" type="s">
+      <default>''</default>
+      <summary>SFTP username</summary>
+    </key>
+
+    <!-- NOTE: storing a password in dconf is not encrypted. For a hardened
+         deployment, replace this key with a libsecret lookup. -->
+    <key name="sftp-password" type="s">
+      <default>''</default>
+      <summary>SFTP password</summary>
+    </key>
+
+    <key name="sftp-directory" type="s">
+      <default>''</default>
+      <summary>SFTP remote directory</summary>
+      <description>Path on the remote device where JSON files are uploaded.</description>
+    </key>
+
+    <!-- UI state -->
+    <key name="last-image-directory" type="s">
+      <default>''</default>
+      <summary>Last used image directory</summary>
+      <description>Remembered so the file chooser opens in the same place.</description>
+    </key>
+
+  </schema>
+</schemalist>

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=BrachioGraph Image Converter
+Comment=Convert images to JSON vector format for a BrachioGraph pen plotter
+Exec=brachiograph-converter
+Icon=uk.andypiper.brachiograph-converter
+Type=Application
+Categories=Graphics;Utility;
+Keywords=brachiograph;drawing;robot;image;convert;plotter;pen;vector;
+StartupNotify=true
+StartupWMClass=uk.andypiper.brachiograph-converter

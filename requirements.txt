@@ -1,5 +1,0 @@
-PyGObject
-paramiko
-cairosvg
-opencv-python
-Pillow

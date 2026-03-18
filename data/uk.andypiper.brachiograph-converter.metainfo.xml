@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>uk.andypiper.brachiograph-converter</id>
+
+  <name>BrachioGraph Image Converter</name>
+  <summary>Convert images to JSON vector format for a BrachioGraph pen plotter</summary>
+
+  <!-- Licence of this metadata file -->
+  <metadata_license>FSFAP</metadata_license>
+  <!-- Licence of the application itself -->
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      BrachioGraph Image Converter turns raster images into the JSON vector
+      format understood by a BrachioGraph pen-plotting robot. It offers
+      configurable edge detection (contours), cross-hatching for shading, and
+      edge repetition to emphasise outlines.
+    </p>
+    <p>
+      Once conversion is complete the resulting JSON file can be uploaded
+      directly to the BrachioGraph device over SFTP from within the app.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">uk.andypiper.brachiograph-converter.desktop</launchable>
+
+  <url type="homepage">https://github.com/andypiper/brachiograph-converter-gui</url>
+  <url type="bugtracker">https://github.com/andypiper/brachiograph-converter-gui/issues</url>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.0" date="2024-01-01">
+      <description>
+        <p>Initial release, ported to GTK4 and libadwaita.</p>
+      </description>
+    </release>
+  </releases>
+
+  <provides>
+    <binary>brachiograph-converter</binary>
+  </provides>
+</component>
