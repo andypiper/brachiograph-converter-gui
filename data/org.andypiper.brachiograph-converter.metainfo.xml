@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>uk.andypiper.brachiograph-converter</id>
+  <id>org.andypiper.brachiograph-converter</id>
 
   <name>BrachioGraph Image Converter</name>
   <summary>Convert images to JSON vector format for a BrachioGraph pen plotter</summary>
@@ -23,7 +23,7 @@
     </p>
   </description>
 
-  <launchable type="desktop-id">uk.andypiper.brachiograph-converter.desktop</launchable>
+  <launchable type="desktop-id">org.andypiper.brachiograph-converter.desktop</launchable>
 
   <url type="homepage">https://github.com/andypiper/brachiograph-converter-gui</url>
   <url type="bugtracker">https://github.com/andypiper/brachiograph-converter-gui/issues</url>

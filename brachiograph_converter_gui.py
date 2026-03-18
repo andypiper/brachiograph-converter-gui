@@ -23,7 +23,7 @@ from linedraw import image_to_json
 # Absolute path to the directory containing this file; used to locate
 # bundled assets (ui/) whether running from source or as an installed wheel.
 APP_DIR = Path(__file__).parent.resolve()
-APP_ID = "uk.andypiper.brachiograph-converter"
+APP_ID = "org.andypiper.brachiograph-converter"
 
 SIZE_LIMIT = 3 * 1024 * 1024  # 3 MB
 IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/tiff", "image/webp"]

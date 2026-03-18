@@ -6,7 +6,7 @@ ICONDIR     := $(PREFIX)/share/icons/hicolor/512x512/apps
 METAINFODIR := $(PREFIX)/share/metainfo
 SCHEMADIR   := $(PREFIX)/share/glib-2.0/schemas
 
-APP_ID      := uk.andypiper.brachiograph-converter
+APP_ID      := org.andypiper.brachiograph-converter
 SCHEMA_XML  := data/$(APP_ID).gschema.xml
 
 .PHONY: sync compile-schemas run install uninstall clean

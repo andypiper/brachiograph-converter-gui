@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="uk.andypiper.brachiograph-converter"
-          path="/uk/andypiper/brachiograph-converter/">
+  <schema id="org.andypiper.brachiograph-converter"
+          path="/org/andypiper/brachiograph-converter/">
 
     <!-- Conversion parameters -->
     <key name="draw-contours" type="i">
