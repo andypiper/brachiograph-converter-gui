@@ -1,6 +1,5 @@
 # TODO: better help info / commenting
 # TODO: handle image sizing
-# TODO: test on Linux and Windows
 # TODO: figure out a way to handle SVG
 # TODO: other optimisations e.g. threading
 # TODO: send print instruction?
@@ -11,8 +10,12 @@ import os
 import json
 from pathlib import Path
 
-from PySide6 import QtWidgets, QtGui, QtCore
-from PySide6.QtWidgets import QApplication, QMainWindow
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gio, GLib, Gtk
+
 import paramiko
 import cairosvg
 
@@ -28,266 +31,367 @@ DEFAULT_SETTINGS = {
     "sftp_password": "",
     "sftp_directory": "",
 }
-IMAGE_EXTENSIONS = "Images (*.jpg *.jpeg *.png *.tif *.tiff *.webp)"
-JSON_EXTENSION = "JSON files (*.json)"
+IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/tiff", "image/webp"]
 CONFIG_FILE = Path.home() / ".brachiograph_converter.json"
 
 
-class SFTPSettingsDialog(QtWidgets.QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("SFTP Settings")
-
-        self.sftp_hostname_label = QtWidgets.QLabel("SFTP Hostname:")
-        self.sftp_hostname_input = QtWidgets.QLineEdit()
-        self.sftp_user_label = QtWidgets.QLabel("SFTP User:")
-        self.sftp_user_input = QtWidgets.QLineEdit()
-        self.sftp_password_label = QtWidgets.QLabel("SFTP Password:")
-        self.sftp_password_input = QtWidgets.QLineEdit()
-        self.sftp_password_input.setEchoMode(QtWidgets.QLineEdit.Password)
-        self.sftp_directory_label = QtWidgets.QLabel("SFTP Directory:")
-        self.sftp_directory_input = QtWidgets.QLineEdit()
-
-        layout = QtWidgets.QFormLayout()
-        layout.addRow(self.sftp_hostname_label, self.sftp_hostname_input)
-        layout.addRow(self.sftp_user_label, self.sftp_user_input)
-        layout.addRow(self.sftp_password_label, self.sftp_password_input)
-        layout.addRow(self.sftp_directory_label, self.sftp_directory_input)
-
-        button_box = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
-        )
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-
-        layout.addWidget(button_box)
-        self.setLayout(layout)
+# ── SFTP settings dialog ────────────────────────────────────────────────────
 
 
-class BrachiographConverterMainWindow(QMainWindow):
-
+class SFTPSettingsDialog(Adw.PreferencesDialog):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("BrachioGraph Image Converter")
+        self.set_title("SFTP Settings")
+        self.set_search_enabled(False)
 
-        self.central_widget = QtWidgets.QWidget(self)
-        self.setCentralWidget(self.central_widget)
+        page = Adw.PreferencesPage()
+        self.add(page)
 
-        self.setupUI()
+        group = Adw.PreferencesGroup()
+        group.set_title("Connection")
+        page.add(group)
 
-        # Set the application icon and name
-        app_icon = QtGui.QIcon((str(Path("ui") / "icon.png")))
-        QtWidgets.QApplication.setWindowIcon(app_icon)
-        QtWidgets.QApplication.setApplicationName("BrachioGraph Image Converter")
+        self.hostname_row = Adw.EntryRow()
+        self.hostname_row.set_title("Hostname")
+        group.add(self.hostname_row)
 
-        # Load settings from configuration file
-        self.load_settings()
+        self.username_row = Adw.EntryRow()
+        self.username_row.set_title("Username")
+        group.add(self.username_row)
 
-        # Restore window geometry and state
-        self.read_settings()
+        self.password_row = Adw.PasswordEntryRow()
+        self.password_row.set_title("Password")
+        group.add(self.password_row)
 
-    def setupUI(self):
-        self.content_image_label = QtWidgets.QLabel("Image:")
-        self.content_image_input = QtWidgets.QLineEdit()
-        self.content_image_button = QtWidgets.QPushButton("Browse")
+        self.directory_row = Adw.EntryRow()
+        self.directory_row.set_title("Remote Directory")
+        group.add(self.directory_row)
 
-        self.draw_contours_label = QtWidgets.QLabel("Contours:")
-        self.draw_contours_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.draw_contours_slider.setRange(0, 10)
-        self.draw_contours_slider.setToolTip(
-            "Default is 2, try values between 0.5 and 4. Smaller = more detail."
+    def populate(self, settings):
+        self.hostname_row.set_text(settings.get("sftp_hostname", ""))
+        self.username_row.set_text(settings.get("sftp_user", ""))
+        self.password_row.set_text(settings.get("sftp_password", ""))
+        self.directory_row.set_text(settings.get("sftp_directory", ""))
+
+    def collect(self):
+        return {
+            "sftp_hostname": self.hostname_row.get_text(),
+            "sftp_user": self.username_row.get_text(),
+            "sftp_password": self.password_row.get_text(),
+            "sftp_directory": self.directory_row.get_text(),
+        }
+
+
+# ── Main window ─────────────────────────────────────────────────────────────
+
+
+class BrachiographWindow(Adw.ApplicationWindow):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.set_title("BrachioGraph Image Converter")
+        self.set_default_size(960, 640)
+        self._setup_ui()
+        self._load_settings()
+
+    # ── UI construction ──────────────────────────────────────────────────────
+
+    def _setup_ui(self):
+        toolbar_view = Adw.ToolbarView()
+        self.set_content(toolbar_view)
+
+        # Header bar
+        header = Adw.HeaderBar()
+        toolbar_view.add_top_bar(header)
+
+        sftp_btn = Gtk.Button(icon_name="preferences-system-symbolic")
+        sftp_btn.set_tooltip_text("SFTP Settings")
+        sftp_btn.connect("clicked", self._on_sftp_settings)
+        header.pack_end(sftp_btn)
+
+        # Root horizontal split
+        root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        root.set_margin_top(12)
+        root.set_margin_bottom(12)
+        root.set_margin_start(12)
+        root.set_margin_end(12)
+        toolbar_view.set_content(root)
+
+        # ── Left panel ───────────────────────────────────────────────────────
+        left_scroll = Gtk.ScrolledWindow()
+        left_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        left_scroll.set_size_request(340, -1)
+        root.append(left_scroll)
+
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        left.set_margin_top(4)
+        left.set_margin_bottom(4)
+        left.set_margin_start(4)
+        left.set_margin_end(4)
+        left_scroll.set_child(left)
+
+        # Convert section
+        left.append(self._make_section_label("Convert Image to JSON"))
+
+        image_list = self._make_list_box()
+        left.append(image_list)
+        self.image_entry = Gtk.Entry()
+        self.image_entry.set_placeholder_text("Select an image file…")
+        self._append_file_row(image_list, "Image:", self.image_entry, self._on_browse_image)
+
+        settings_list = self._make_list_box()
+        left.append(settings_list)
+
+        self.contours_scale = self._append_scale_row(
+            settings_list,
+            "Contours",
+            "Default 2; smaller = more detail",
+            0, 10, 1, 2,
         )
-        self.draw_contours_value_label = QtWidgets.QLabel()
-
-        self.draw_hatch_label = QtWidgets.QLabel("Hatch:")
-        self.draw_hatch_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.draw_hatch_slider.setRange(1, 100)
-        self.draw_hatch_slider.setToolTip(
-            "Space between hatching. Default is 16, try values between 8 and 16. Smaller = more detail."
+        self.hatch_scale = self._append_scale_row(
+            settings_list,
+            "Hatch",
+            "Hatching spacing. Default 16; smaller = more detail",
+            1, 100, 1, 16,
         )
-        self.draw_hatch_value_label = QtWidgets.QLabel()
-
-        self.repeat_contours_label = QtWidgets.QLabel("Repeat Contours:")
-        self.repeat_contours_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.repeat_contours_slider.setRange(0, 10)
-        self.repeat_contours_slider.setToolTip(
-            "Number of times to repeat outer lines, so the edges of the final image stand out. Default is 0."
+        self.repeat_scale = self._append_scale_row(
+            settings_list,
+            "Repeat Contours",
+            "Times to repeat outer edges. Default 0",
+            0, 10, 1, 0,
         )
-        self.repeat_contours_value_label = QtWidgets.QLabel()
 
-        self.generate_button = QtWidgets.QPushButton("Generate")
-        self.upload_button = QtWidgets.QPushButton("Upload Files")
-        self.quit_button = QtWidgets.QPushButton("Quit")
-        self.sftp_settings_button = QtWidgets.QPushButton("SFTP Settings")
-        self.view_files_button = QtWidgets.QPushButton("View Files")
+        generate_btn = Gtk.Button(label="Generate")
+        generate_btn.add_css_class("suggested-action")
+        generate_btn.connect("clicked", self._on_generate)
+        left.append(generate_btn)
 
-        self.image_widget = QtWidgets.QLabel()
-        self.image_widget.setStyleSheet(
-            "background-color: white; border: 1px solid gray;"
+        left.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        # Upload section
+        left.append(self._make_section_label("Upload to BrachioGraph"))
+
+        json_list = self._make_list_box()
+        left.append(json_list)
+        self.json_entry = Gtk.Entry()
+        self.json_entry.set_placeholder_text("Select a JSON file…")
+        self._append_file_row(json_list, "JSON File:", self.json_entry, self._on_browse_json)
+
+        upload_btn = Gtk.Button(label="Upload Files")
+        upload_btn.connect("clicked", self._on_upload)
+        left.append(upload_btn)
+
+        left.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        view_btn = Gtk.Button(label="View Files")
+        view_btn.connect("clicked", self._on_view_files)
+        left.append(view_btn)
+
+        # Push everything up
+        spacer = Gtk.Box()
+        spacer.set_vexpand(True)
+        left.append(spacer)
+
+        # ── Right panel: preview ─────────────────────────────────────────────
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        right.set_hexpand(True)
+        right.set_vexpand(True)
+        root.append(right)
+
+        self.picture = Gtk.Picture()
+        self.picture.set_hexpand(True)
+        self.picture.set_vexpand(True)
+        self.picture.set_can_shrink(True)
+        self.picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+        self.picture.add_css_class("card")
+        right.append(self.picture)
+
+        self._set_picture(Path("ui") / "blank.png")
+
+    @staticmethod
+    def _make_section_label(text):
+        lbl = Gtk.Label(label=text)
+        lbl.add_css_class("title-3")
+        lbl.set_xalign(0)
+        lbl.set_margin_top(4)
+        return lbl
+
+    @staticmethod
+    def _make_list_box():
+        lb = Gtk.ListBox()
+        lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        return lb
+
+    @staticmethod
+    def _make_list_row(child):
+        row = Gtk.ListBoxRow()
+        row.set_activatable(False)
+        row.set_child(child)
+        return row
+
+    def _append_file_row(self, list_box, label_text, entry, callback):
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+
+        lbl = Gtk.Label(label=label_text, xalign=0)
+        lbl.set_size_request(80, -1)
+        box.append(lbl)
+
+        entry.set_hexpand(True)
+        box.append(entry)
+
+        btn = Gtk.Button(label="Browse")
+        btn.set_valign(Gtk.Align.CENTER)
+        btn.connect("clicked", callback)
+        box.append(btn)
+
+        list_box.append(self._make_list_row(box))
+
+    def _append_scale_row(self, list_box, title, tooltip, min_val, max_val, step, default):
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+
+        lbl = Gtk.Label(label=f"{title}:", xalign=0)
+        lbl.set_size_request(130, -1)
+        lbl.set_tooltip_text(tooltip)
+        box.append(lbl)
+
+        adj = Gtk.Adjustment(
+            value=default,
+            lower=min_val,
+            upper=max_val,
+            step_increment=step,
+            page_increment=step * 10,
         )
-        self.image_widget.setAlignment(QtCore.Qt.AlignCenter)
-        self.image_widget.setMinimumSize(512, 512)
+        scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adj)
+        scale.set_hexpand(True)
+        scale.set_draw_value(False)
+        scale.set_round_digits(0)
+        scale.set_tooltip_text(tooltip)
+        box.append(scale)
 
-        self.json_file_label = QtWidgets.QLabel("JSON File:")
-        self.json_file_input = QtWidgets.QLineEdit()
-        self.json_file_button = QtWidgets.QPushButton("Browse")
+        value_lbl = Gtk.Label(label=str(int(default)))
+        value_lbl.set_size_request(32, -1)
+        value_lbl.set_xalign(1)
+        box.append(value_lbl)
 
-        self.convert_label = QtWidgets.QLabel("<b>Convert Image to JSON</b>")
-        self.convert_label.setAlignment(QtCore.Qt.AlignCenter)
-        self.upload_label = QtWidgets.QLabel("<b>Upload to BrachioGraph</b>")
-        self.upload_label.setAlignment(QtCore.Qt.AlignCenter)
+        scale.connect("value-changed", lambda s: value_lbl.set_label(str(int(s.get_value()))))
 
-        content_layout = QtWidgets.QHBoxLayout()
-        content_layout.addWidget(self.content_image_input, stretch=1)
-        content_layout.addWidget(self.content_image_button)
+        list_box.append(self._make_list_row(box))
+        return scale
 
-        draw_contours_layout = QtWidgets.QHBoxLayout()
-        draw_contours_layout.addWidget(self.draw_contours_slider, stretch=1)
-        draw_contours_layout.addWidget(self.draw_contours_value_label)
+    # ── Settings ─────────────────────────────────────────────────────────────
 
-        draw_hatch_layout = QtWidgets.QHBoxLayout()
-        draw_hatch_layout.addWidget(self.draw_hatch_slider, stretch=1)
-        draw_hatch_layout.addWidget(self.draw_hatch_value_label)
+    def _load_settings(self):
+        if CONFIG_FILE.exists():
+            with open(CONFIG_FILE) as f:
+                settings = json.load(f)
+        else:
+            settings = dict(DEFAULT_SETTINGS)
+            self._save_settings(settings)
 
-        repeat_contours_layout = QtWidgets.QHBoxLayout()
-        repeat_contours_layout.addWidget(self.repeat_contours_slider, stretch=1)
-        repeat_contours_layout.addWidget(self.repeat_contours_value_label)
+        self.contours_scale.set_value(settings.get("draw_contours", 2))
+        self.hatch_scale.set_value(settings.get("draw_hatch", 16))
+        self.repeat_scale.set_value(settings.get("repeat_contours", 0))
 
-        json_file_layout = QtWidgets.QHBoxLayout()
-        json_file_layout.addWidget(self.json_file_input, stretch=1)
-        json_file_layout.addWidget(self.json_file_button)
+    def _save_settings(self, settings):
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(settings, f)
 
-        upload_button_layout = QtWidgets.QHBoxLayout()
-        upload_button_layout.addWidget(self.upload_button)
+    def _current_settings(self):
+        if CONFIG_FILE.exists():
+            with open(CONFIG_FILE) as f:
+                return json.load(f)
+        return dict(DEFAULT_SETTINGS)
 
-        separator = QtWidgets.QFrame()
-        separator.setFrameShape(QtWidgets.QFrame.HLine)
-        separator.setFrameShadow(QtWidgets.QFrame.Sunken)
+    # ── Signal handlers ───────────────────────────────────────────────────────
 
-        separator2 = QtWidgets.QFrame()
-        separator2.setFrameShape(QtWidgets.QFrame.HLine)
-        separator2.setFrameShadow(QtWidgets.QFrame.Sunken)
-
-        separator3 = QtWidgets.QFrame()
-        separator3.setFrameShape(QtWidgets.QFrame.HLine)
-        separator3.setFrameShadow(QtWidgets.QFrame.Sunken)
-
-        file_management_layout = QtWidgets.QHBoxLayout()
-        file_management_layout.addWidget(self.view_files_button)
-        file_management_layout.addWidget(self.sftp_settings_button)
-
-        left_layout = QtWidgets.QVBoxLayout()
-        left_layout.addWidget(self.convert_label)
-        left_layout.addWidget(self.content_image_label)
-        left_layout.addLayout(content_layout)
-        left_layout.addWidget(self.draw_contours_label)
-        left_layout.addLayout(draw_contours_layout)
-        left_layout.addWidget(self.draw_hatch_label)
-        left_layout.addLayout(draw_hatch_layout)
-        left_layout.addWidget(self.repeat_contours_label)
-        left_layout.addLayout(repeat_contours_layout)
-        left_layout.addWidget(self.generate_button)
-        left_layout.addSpacing(20)
-
-        left_layout.addWidget(separator)
-        left_layout.addSpacing(20)
-        left_layout.addWidget(self.upload_label)
-        left_layout.addWidget(self.json_file_label)
-        left_layout.addLayout(json_file_layout)
-        left_layout.addLayout(upload_button_layout)
-        left_layout.addSpacing(20)
-
-        left_layout.addWidget(separator3)
-        left_layout.addSpacing(20)
-        left_layout.addLayout(file_management_layout)
-        left_layout.addSpacing(20)
-
-        left_layout.addWidget(separator2)
-        left_layout.addSpacing(20)
-        left_layout.addWidget(self.quit_button)
-        left_layout.addStretch()
-        left_layout.setSpacing(10)
-        left_layout.setContentsMargins(10, 10, 10, 10)
-
-        right_layout = QtWidgets.QVBoxLayout()
-        right_layout.addWidget(self.image_widget)
-        right_layout.addStretch()
-        self.set_picture(Path("ui") / "blank.png")
-
-        main_layout = QtWidgets.QHBoxLayout()
-        main_layout.addLayout(left_layout, stretch=1)
-        main_layout.addSpacing(20)
-        main_layout.addLayout(right_layout, stretch=2)
-
-        self.central_widget.setLayout(main_layout)
-
-        # Connect signals and slots
-        self.content_image_button.clicked.connect(self.browse_content_image)
-        self.generate_button.clicked.connect(self.generate_json)
-        self.upload_button.clicked.connect(self.upload_files)
-        self.quit_button.clicked.connect(self.close)
-        self.draw_contours_slider.valueChanged.connect(self.update_draw_contours_value)
-        self.draw_hatch_slider.valueChanged.connect(self.update_draw_hatch_value)
-        self.repeat_contours_slider.valueChanged.connect(
-            self.update_repeat_contours_value
-        )
-        self.json_file_button.clicked.connect(self.browse_json_file)
-        self.sftp_settings_button.clicked.connect(self.show_sftp_settings)
-        self.view_files_button.clicked.connect(self.open_images_directory)
-
-        # Load settings from configuration file
-        self.load_settings()
-
-        # Ensure labels are updated with their initial slider values
-        self.update_draw_contours_value(self.draw_contours_slider.value())
-        self.update_draw_hatch_value(self.draw_hatch_slider.value())
-        self.update_repeat_contours_value(self.repeat_contours_slider.value())
-
-    def browse_content_image(self):
-        settings = self.load_settings()
+    def _on_browse_image(self, _btn):
+        settings = self._current_settings()
         last_dir = settings.get("last_image_directory", str(Path.home()))
-        file_name, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Select Image", last_dir, IMAGE_EXTENSIONS
-        )
-        if file_name:
-            self.content_image_input.setText(file_name)
-            settings["last_image_directory"] = str(Path(file_name).parent)
-            self.save_settings(settings)
 
-    def generate_json(self):
-        print("Begin JSON generation")
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Select Image")
 
-        image_file = self.content_image_input.text()
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        f = Gtk.FileFilter()
+        f.set_name("Images")
+        for mime in IMAGE_MIME_TYPES:
+            f.add_mime_type(mime)
+        filters.append(f)
+        dialog.set_filters(filters)
+        dialog.set_initial_folder(Gio.File.new_for_path(last_dir))
+        dialog.open(self, None, self._on_image_chosen)
 
+    def _on_image_chosen(self, dialog, result):
+        try:
+            gfile = dialog.open_finish(result)
+        except GLib.Error:
+            return
+        path = gfile.get_path()
+        if path:
+            self.image_entry.set_text(path)
+            settings = self._current_settings()
+            settings["last_image_directory"] = str(Path(path).parent)
+            self._save_settings(settings)
+
+    def _on_browse_json(self, _btn):
+        images_dir = Path("images")
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Select JSON File")
+
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        f = Gtk.FileFilter()
+        f.set_name("JSON files")
+        f.add_pattern("*.json")
+        filters.append(f)
+        dialog.set_filters(filters)
+        dialog.set_initial_folder(Gio.File.new_for_path(str(images_dir.resolve())))
+        dialog.open(self, None, self._on_json_chosen)
+
+    def _on_json_chosen(self, dialog, result):
+        try:
+            gfile = dialog.open_finish(result)
+        except GLib.Error:
+            return
+        path = gfile.get_path()
+        if path:
+            self.json_entry.set_text(path)
+
+    def _on_generate(self, _btn):
+        image_file = self.image_entry.get_text().strip()
         if not image_file:
-            QtWidgets.QMessageBox.critical(
-                self, "Image Not Selected", "Please select an image file to convert."
+            self._show_error("Image Not Selected", "Please select an image file to convert.")
+            return
+
+        if os.path.getsize(image_file) > SIZE_LIMIT:
+            self._show_error(
+                "File Too Large",
+                "The selected image file is too large. Please resize it and try again.",
             )
             return
 
-        # Check file size
-        file_size = os.path.getsize(image_file)
-        if file_size > SIZE_LIMIT:
-            QtWidgets.QMessageBox.warning(
-                self,
-                "File Size Warning",
-                "The selected image file is too large. Please resize it to a smaller size and try again.",
-            )
-            return
-
-        # Convert
+        print("Begin JSON generation")
         image_to_json(
             image_file,
-            draw_contours=int(self.draw_contours_slider.value()),
-            draw_hatch=int(self.draw_hatch_slider.value()),
-            repeat_contours=int(self.repeat_contours_slider.value()),
+            draw_contours=int(self.contours_scale.get_value()),
+            draw_hatch=int(self.hatch_scale.get_value()),
+            repeat_contours=int(self.repeat_scale.get_value()),
         )
 
-        # Display
         input_svg = Path("images") / f"{Path(image_file).stem}.svg"
         output_png = Path("temp") / "converted.png"
+        output_png.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(str(input_svg), "r") as svg_file:
+        with open(str(input_svg)) as svg_file:
             with open(str(output_png), "wb") as png_file:
                 cairosvg.svg2png(
                     file_obj=svg_file,
@@ -296,162 +400,101 @@ class BrachiographConverterMainWindow(QMainWindow):
                     parent_height=512,
                 )
 
-        self.set_picture(output_png)
+        self._set_picture(output_png)
 
-    def set_picture(self, pngfile):
-        pixmap = QtGui.QPixmap(str(pngfile))
-
-        self.image_widget.setPixmap(
-            pixmap.scaled(
-                self.image_widget.size(),
-                QtCore.Qt.KeepAspectRatio,
-                QtCore.Qt.SmoothTransformation,
-            )
-        )
-
-    def browse_json_file(self):
-        images_directory = Path("images")
-        if not images_directory.exists():
-            images_directory.mkdir(parents=True)
-
-        file_name, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Select JSON File", str(images_directory), JSON_EXTENSION
-        )
-        if file_name:
-            self.json_file_input.setText(file_name)
-
-    def upload_files(self):
-        settings = self.load_settings()
+    def _on_upload(self, _btn):
+        settings = self._current_settings()
         hostname = settings.get("sftp_hostname", "")
         username = settings.get("sftp_user", "")
         password = settings.get("sftp_password", "")
         remote_directory = settings.get("sftp_directory", "")
-        json_file = self.json_file_input.text()
+        json_file = self.json_entry.get_text().strip()
 
         if not json_file:
-            QtWidgets.QMessageBox.critical(
-                self, "JSON File Not Selected", "Please select a JSON file to upload."
-            )
+            self._show_error("JSON File Not Selected", "Please select a JSON file to upload.")
             return
 
-        if not hostname or not username or not password or not remote_directory:
-            QtWidgets.QMessageBox.critical(
-                self,
+        if not all([hostname, username, password, remote_directory]):
+            self._show_error(
                 "SFTP Configuration Missing",
-                "Please configure the SFTP connection settings before uploading a file.\n\n"
-                "To set the configuration, click on the 'SFTP Settings' button and provide the required information.",
+                "Please configure the SFTP settings before uploading.\n"
+                "Click the settings icon in the header bar.",
             )
             return
 
         print(f"Begin SFTP upload to {hostname}")
-
         try:
             with paramiko.Transport((hostname, 22)) as transport:
                 transport.connect(username=username, password=password)
-                with paramiko.SFTPClient.from_transport(transport) as sftp_client:
-                    print("Connection successfully established...")
-
-                    remote_file_path = Path(remote_directory) / Path(json_file).name
-                    sftp_client.put(json_file, str(remote_file_path))
-
-            QtWidgets.QMessageBox.information(
-                self, "Upload Completed", "File uploaded successfully."
-            )
+                with paramiko.SFTPClient.from_transport(transport) as sftp:
+                    remote_path = str(Path(remote_directory) / Path(json_file).name)
+                    sftp.put(json_file, remote_path)
+            self._show_info("Upload Completed", "File uploaded successfully.")
         except paramiko.AuthenticationException:
-            QtWidgets.QMessageBox.critical(
-                self,
+            self._show_error(
                 "Authentication Error",
                 "Authentication failed. Please check your credentials.",
             )
-        except Exception as exception:
-            QtWidgets.QMessageBox.critical(
-                self, "Error", f"An error occurred: {exception}"
-            )
+        except Exception as exc:
+            self._show_error("Upload Error", f"An error occurred: {exc}")
 
-    def open_images_directory(self):
-        images_directory = Path("images")
-        if not images_directory.exists():
-            images_directory.mkdir(parents=True)
-
-        print(f"Opening directory: {images_directory}")
-
+    def _on_view_files(self, _btn):
+        images_dir = Path("images")
+        images_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Opening directory: {images_dir}")
         try:
             if sys.platform == "win32":
-                subprocess.Popen(["explorer", str(images_directory)])
+                subprocess.Popen(["explorer", str(images_dir)])
             elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(images_directory)])
+                subprocess.Popen(["open", str(images_dir)])
             else:
-                subprocess.Popen(["xdg-open", str(images_directory)])
-        except Exception as exception:
-            print(f"Error opening directory: {exception}")
+                subprocess.Popen(["xdg-open", str(images_dir)])
+        except Exception as exc:
+            print(f"Error opening directory: {exc}")
 
-    def update_draw_contours_value(self, value):
-        self.draw_contours_value_label.setText(f"{value}")
+    def _on_sftp_settings(self, _btn):
+        dlg = SFTPSettingsDialog()
+        dlg.populate(self._current_settings())
 
-    def update_draw_hatch_value(self, value):
-        self.draw_hatch_value_label.setText(f"{value}")
+        def on_closed(_dialog):
+            settings = self._current_settings()
+            settings.update(dlg.collect())
+            self._save_settings(settings)
 
-    def update_repeat_contours_value(self, value):
-        self.repeat_contours_value_label.setText(f"{value}")
+        dlg.connect("closed", on_closed)
+        dlg.present(self)
 
-    def show_sftp_settings(self):
-        settings_dialog = SFTPSettingsDialog(self)
-        settings = self.load_settings()
-        settings_dialog.sftp_hostname_input.setText(settings.get("sftp_hostname", ""))
-        settings_dialog.sftp_user_input.setText(settings.get("sftp_user", ""))
-        settings_dialog.sftp_password_input.setText(settings.get("sftp_password", ""))
-        settings_dialog.sftp_directory_input.setText(settings.get("sftp_directory", ""))
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
-        if settings_dialog.exec() == QtWidgets.QDialog.Accepted:
-            settings["sftp_hostname"] = settings_dialog.sftp_hostname_input.text()
-            settings["sftp_user"] = settings_dialog.sftp_user_input.text()
-            settings["sftp_password"] = settings_dialog.sftp_password_input.text()
-            settings["sftp_directory"] = settings_dialog.sftp_directory_input.text()
-            self.save_settings(settings)
+    def _set_picture(self, path):
+        self.picture.set_file(Gio.File.new_for_path(str(path)))
 
-    def load_settings(self):
-        config_file = CONFIG_FILE
+    def _show_error(self, heading, body):
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.present(self)
 
-        if os.path.exists(config_file):
-            with open(config_file, "r") as config:
-                settings = json.load(config)
-        else:
-            settings = DEFAULT_SETTINGS
-            self.save_settings(settings)
+    def _show_info(self, heading, body):
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.present(self)
 
-        self.draw_contours_slider.setValue(settings.get("draw_contours", 2))
-        self.draw_hatch_slider.setValue(settings.get("draw_hatch", 16))
-        self.repeat_contours_slider.setValue(settings.get("repeat_contours", 0))
 
-        return settings
+# ── Application ───────────────────────────────────────────────────────────────
 
-    def save_settings(self, settings):
-        config_file = CONFIG_FILE
 
-        with open(config_file, "w") as config:
-            json.dump(settings, config)
+class BrachiographApp(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id="uk.andypiper.brachiograph-converter")
+        self.connect("activate", self._on_activate)
 
-    def closeEvent(self, event):
-        self.write_settings()
-        super().closeEvent(event)
-
-    def read_settings(self):
-        settings = QtCore.QSettings("uk.andypiper", "BrachioGUI")
-        geometry = settings.value("geometry")
-        if geometry is not None:
-            self.restoreGeometry(geometry)
-        window_state = settings.value("windowState")
-        if window_state is not None:
-            self.restoreState(window_state)
-
-    def write_settings(self):
-        settings = QtCore.QSettings("uk.andypiper", "BrachioGUI")
-        settings.setValue("geometry", self.saveGeometry())
-        settings.setValue("windowState", self.saveState())
+    def _on_activate(self, app):
+        window = BrachiographWindow(application=app)
+        window.present()
 
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = BrachiographConverterMainWindow()
-    window.show()
-    sys.exit(app.exec())
+    app = BrachiographApp()
+    sys.exit(app.run(sys.argv))

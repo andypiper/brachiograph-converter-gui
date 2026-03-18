@@ -6,7 +6,7 @@ authors = ["Andy Piper <andypiper@omg.lol>"]
 
 [tool.poetry.dependencies]
 python = "^3.11"
-PySide6 = "^6.7.0"
+PyGObject = "^3.48.0"
 paramiko = "^3.3.1"
 cairosvg = "^2.7.1"
 numpy = "^1.26.0"

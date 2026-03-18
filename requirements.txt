@@ -1,4 +1,4 @@
-PySide6
+PyGObject
 paramiko
 cairosvg
 opencv-python
