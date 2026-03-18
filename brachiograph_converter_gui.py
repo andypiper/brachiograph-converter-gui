@@ -4,6 +4,7 @@
 # TODO: other optimisations e.g. threading
 # TODO: send print instruction?
 
+import posixpath
 import subprocess
 import os
 import sys
@@ -20,13 +21,13 @@ import cairosvg
 
 from linedraw import image_to_json
 
-# Absolute path to the directory containing this file; used to locate
-# bundled assets (ui/) whether running from source or as an installed wheel.
 APP_DIR = Path(__file__).parent.resolve()
 APP_ID = "org.andypiper.brachiograph-converter"
 
 SIZE_LIMIT = 3 * 1024 * 1024  # 3 MB
 IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/tiff", "image/webp"]
+IMAGES_DIR = Path("images")
+TEMP_DIR = Path("temp")
 
 
 # ── SFTP settings dialog ─────────────────────────────────────────────────────
@@ -88,7 +89,6 @@ class BrachiographWindow(Adw.ApplicationWindow):
         self.set_title("BrachioGraph Image Converter")
         self.set_default_size(960, 640)
         self._setup_ui()
-        self._load_settings()
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -96,7 +96,6 @@ class BrachiographWindow(Adw.ApplicationWindow):
         toolbar_view = Adw.ToolbarView()
         self.set_content(toolbar_view)
 
-        # Header bar
         header = Adw.HeaderBar()
         toolbar_view.add_top_bar(header)
 
@@ -105,7 +104,6 @@ class BrachiographWindow(Adw.ApplicationWindow):
         sftp_btn.connect("clicked", self._on_sftp_settings)
         header.pack_end(sftp_btn)
 
-        # Root horizontal split
         root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         root.set_margin_top(12)
         root.set_margin_bottom(12)
@@ -142,21 +140,21 @@ class BrachiographWindow(Adw.ApplicationWindow):
             settings_list,
             "Contours",
             "Default 2; smaller = more detail",
-            0, 10, 1, 2,
+            0, 10, 1,
             "draw-contours",
         )
         self.hatch_scale = self._append_scale_row(
             settings_list,
             "Hatch",
             "Hatching spacing. Default 16; smaller = more detail",
-            1, 100, 1, 16,
+            1, 100, 1,
             "draw-hatch",
         )
         self.repeat_scale = self._append_scale_row(
             settings_list,
             "Repeat Contours",
             "Times to repeat outer edges. Default 0",
-            0, 10, 1, 0,
+            0, 10, 1,
             "repeat-contours",
         )
 
@@ -191,18 +189,13 @@ class BrachiographWindow(Adw.ApplicationWindow):
         left.append(spacer)
 
         # ── Right panel: preview ──────────────────────────────────────────────
-        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        right.set_hexpand(True)
-        right.set_vexpand(True)
-        root.append(right)
-
         self.picture = Gtk.Picture()
         self.picture.set_hexpand(True)
         self.picture.set_vexpand(True)
         self.picture.set_can_shrink(True)
         self.picture.set_content_fit(Gtk.ContentFit.CONTAIN)
         self.picture.add_css_class("card")
-        right.append(self.picture)
+        root.append(self.picture)
 
         self._set_picture(APP_DIR / "ui" / "blank.png")
 
@@ -263,9 +256,12 @@ class BrachiographWindow(Adw.ApplicationWindow):
         min_val: int,
         max_val: int,
         step: int,
-        default: int,
         settings_key: str,
     ) -> Gtk.Scale:
+        # Initialise from GSettings so the schema default is the single source
+        # of truth — no need for a separate _load_settings pass.
+        initial = self._settings.get_int(settings_key)
+
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         box.set_margin_top(8)
         box.set_margin_bottom(8)
@@ -278,7 +274,7 @@ class BrachiographWindow(Adw.ApplicationWindow):
         box.append(lbl)
 
         adj = Gtk.Adjustment(
-            value=default,
+            value=initial,
             lower=min_val,
             upper=max_val,
             step_increment=step,
@@ -291,7 +287,7 @@ class BrachiographWindow(Adw.ApplicationWindow):
         scale.set_tooltip_text(tooltip)
         box.append(scale)
 
-        value_lbl = Gtk.Label(label=str(default))
+        value_lbl = Gtk.Label(label=str(initial))
         value_lbl.set_size_request(32, -1)
         value_lbl.set_xalign(1)
         box.append(value_lbl)
@@ -305,78 +301,49 @@ class BrachiographWindow(Adw.ApplicationWindow):
         list_box.append(self._make_list_row(box))
         return scale
 
-    # ── Settings ──────────────────────────────────────────────────────────────
-
-    def _load_settings(self) -> None:
-        """Populate widgets from GSettings on startup."""
-        self.contours_scale.set_value(self._settings.get_int("draw-contours"))
-        self.hatch_scale.set_value(self._settings.get_int("draw-hatch"))
-        self.repeat_scale.set_value(self._settings.get_int("repeat-contours"))
-
     # ── Signal handlers ────────────────────────────────────────────────────────
 
     def _on_browse_image(self, _btn) -> None:
         last_dir = self._settings.get_string("last-image-directory") or str(Path.home())
-
-        dialog = Gtk.FileDialog()
-        dialog.set_title("Select Image")
-
-        filters = Gio.ListStore.new(Gtk.FileFilter)
         f = Gtk.FileFilter()
         f.set_name("Images")
         for mime in IMAGE_MIME_TYPES:
             f.add_mime_type(mime)
-        filters.append(f)
-        dialog.set_filters(filters)
-        dialog.set_initial_folder(Gio.File.new_for_path(last_dir))
-        dialog.open(self, None, self._on_image_chosen)
+        self._open_file_dialog("Select Image", f, last_dir, self._on_image_chosen)
 
     def _on_image_chosen(self, dialog: Gtk.FileDialog, result: Gio.AsyncResult) -> None:
-        try:
-            gfile = dialog.open_finish(result)
-        except GLib.Error:
-            return
-        path = gfile.get_path()
+        path = self._finish_file_dialog(dialog, result, self.image_entry)
         if path:
-            self.image_entry.set_text(path)
             self._settings.set_string("last-image-directory", str(Path(path).parent))
 
     def _on_browse_json(self, _btn) -> None:
-        images_dir = Path("images")
-        images_dir.mkdir(parents=True, exist_ok=True)
-
-        dialog = Gtk.FileDialog()
-        dialog.set_title("Select JSON File")
-
-        filters = Gio.ListStore.new(Gtk.FileFilter)
         f = Gtk.FileFilter()
         f.set_name("JSON files")
         f.add_pattern("*.json")
-        filters.append(f)
-        dialog.set_filters(filters)
-        dialog.set_initial_folder(Gio.File.new_for_path(str(images_dir.resolve())))
-        dialog.open(self, None, self._on_json_chosen)
+        self._open_file_dialog(
+            "Select JSON File", f,
+            str(IMAGES_DIR.resolve()),
+            self._on_json_chosen,
+        )
 
     def _on_json_chosen(self, dialog: Gtk.FileDialog, result: Gio.AsyncResult) -> None:
-        try:
-            gfile = dialog.open_finish(result)
-        except GLib.Error:
-            return
-        path = gfile.get_path()
-        if path:
-            self.json_entry.set_text(path)
+        self._finish_file_dialog(dialog, result, self.json_entry)
 
     def _on_generate(self, _btn) -> None:
         image_file = self.image_entry.get_text().strip()
         if not image_file:
-            self._show_error("Image Not Selected", "Please select an image file to convert.")
+            self._show_dialog("Image Not Selected", "Please select an image file to convert.")
             return
 
-        if os.path.getsize(image_file) > SIZE_LIMIT:
-            self._show_error(
-                "File Too Large",
-                "The selected image file is too large. Please resize it and try again.",
-            )
+        try:
+            if Path(image_file).stat().st_size > SIZE_LIMIT:
+                self._show_dialog(
+                    "File Too Large",
+                    "The selected image file is too large. Please resize it and try again.",
+                )
+                return
+        except OSError as exc:
+            self._show_dialog("File Error", f"Could not read image file: {exc}")
             return
 
         print("Begin JSON generation")
@@ -387,18 +354,17 @@ class BrachiographWindow(Adw.ApplicationWindow):
             repeat_contours=int(self.repeat_scale.get_value()),
         )
 
-        input_svg = Path("images") / f"{Path(image_file).stem}.svg"
-        output_png = Path("temp") / "converted.png"
+        input_svg = IMAGES_DIR / f"{Path(image_file).stem}.svg"
+        output_png = TEMP_DIR / "converted.png"
         output_png.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(str(input_svg)) as svg_file:
-            with open(str(output_png), "wb") as png_file:
-                cairosvg.svg2png(
-                    file_obj=svg_file,
-                    write_to=png_file,
-                    parent_width=512,
-                    parent_height=512,
-                )
+        with open(input_svg) as svg_file, open(output_png, "wb") as png_file:
+            cairosvg.svg2png(
+                file_obj=svg_file,
+                write_to=png_file,
+                parent_width=512,
+                parent_height=512,
+            )
 
         self._set_picture(output_png)
 
@@ -410,11 +376,11 @@ class BrachiographWindow(Adw.ApplicationWindow):
         json_file = self.json_entry.get_text().strip()
 
         if not json_file:
-            self._show_error("JSON File Not Selected", "Please select a JSON file to upload.")
+            self._show_dialog("JSON File Not Selected", "Please select a JSON file to upload.")
             return
 
         if not all([hostname, username, password, remote_directory]):
-            self._show_error(
+            self._show_dialog(
                 "SFTP Configuration Missing",
                 "Please configure the SFTP settings before uploading.\n"
                 "Click the settings icon in the header bar.",
@@ -426,28 +392,26 @@ class BrachiographWindow(Adw.ApplicationWindow):
             with paramiko.Transport((hostname, 22)) as transport:
                 transport.connect(username=username, password=password)
                 with paramiko.SFTPClient.from_transport(transport) as sftp:
-                    remote_path = str(Path(remote_directory) / Path(json_file).name)
+                    remote_path = posixpath.join(remote_directory, Path(json_file).name)
                     sftp.put(json_file, remote_path)
-            self._show_info("Upload Completed", "File uploaded successfully.")
+            self._show_dialog("Upload Completed", "File uploaded successfully.")
         except paramiko.AuthenticationException:
-            self._show_error(
+            self._show_dialog(
                 "Authentication Error",
                 "Authentication failed. Please check your credentials.",
             )
         except Exception as exc:
-            self._show_error("Upload Error", f"An error occurred: {exc}")
+            self._show_dialog("Upload Error", f"An error occurred: {exc}")
 
     def _on_view_files(self, _btn) -> None:
-        images_dir = Path("images")
-        images_dir.mkdir(parents=True, exist_ok=True)
-        print(f"Opening directory: {images_dir}")
+        print(f"Opening directory: {IMAGES_DIR}")
         try:
             if sys.platform == "win32":
-                subprocess.Popen(["explorer", str(images_dir)])
+                subprocess.Popen(["explorer", str(IMAGES_DIR)])
             elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(images_dir)])
+                subprocess.Popen(["open", str(IMAGES_DIR)])
             else:
-                subprocess.Popen(["xdg-open", str(images_dir)])
+                subprocess.Popen(["xdg-open", str(IMAGES_DIR)])
         except Exception as exc:
             print(f"Error opening directory: {exc}")
 
@@ -458,16 +422,40 @@ class BrachiographWindow(Adw.ApplicationWindow):
 
     # ── Helpers ────────────────────────────────────────────────────────────────
 
+    def _open_file_dialog(
+        self,
+        title: str,
+        file_filter: Gtk.FileFilter,
+        initial_dir: str,
+        callback,
+    ) -> None:
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(file_filter)
+        dialog = Gtk.FileDialog()
+        dialog.set_title(title)
+        dialog.set_filters(filters)
+        dialog.set_initial_folder(Gio.File.new_for_path(initial_dir))
+        dialog.open(self, None, callback)
+
+    def _finish_file_dialog(
+        self,
+        dialog: Gtk.FileDialog,
+        result: Gio.AsyncResult,
+        entry: Gtk.Entry,
+    ) -> str | None:
+        try:
+            gfile = dialog.open_finish(result)
+        except GLib.Error:
+            return None
+        path = gfile.get_path()
+        if path:
+            entry.set_text(path)
+        return path
+
     def _set_picture(self, path: Path) -> None:
         self.picture.set_file(Gio.File.new_for_path(str(path)))
 
-    def _show_error(self, heading: str, body: str) -> None:
-        dialog = Adw.AlertDialog(heading=heading, body=body)
-        dialog.add_response("ok", "OK")
-        dialog.set_default_response("ok")
-        dialog.present(self)
-
-    def _show_info(self, heading: str, body: str) -> None:
+    def _show_dialog(self, heading: str, body: str) -> None:
         dialog = Adw.AlertDialog(heading=heading, body=body)
         dialog.add_response("ok", "OK")
         dialog.set_default_response("ok")
@@ -492,19 +480,14 @@ class BrachiographApp(Adw.Application):
 
 def main() -> int:
     """Entry point used by the installed console script and by direct invocation."""
-    # When running from the source tree, compile the GSettings schema into
-    # data/ and point GLib at it. Once `make install` has been run the schema
-    # lives in ~/.local/share/glib-2.0/schemas/ and no override is needed.
-    schema_xml = APP_DIR / "data" / f"{APP_ID}.gschema.xml"
-    compiled = APP_DIR / "data" / "gschemas.compiled"
-    if schema_xml.exists() and "GSETTINGS_SCHEMA_DIR" not in os.environ:
-        if not compiled.exists():
-            subprocess.run(
-                ["glib-compile-schemas", str(schema_xml.parent)],
-                check=False,
-            )
-        if compiled.exists():
-            os.environ["GSETTINGS_SCHEMA_DIR"] = str(schema_xml.parent)
+    # When running from the source tree, point GLib at the local schema and
+    # compile it if necessary. Installed builds find the schema via the
+    # standard XDG path (~/.local/share/glib-2.0/schemas/) set by make install.
+    schema_dir = APP_DIR / "data"
+    if (schema_dir / f"{APP_ID}.gschema.xml").exists() and "GSETTINGS_SCHEMA_DIR" not in os.environ:
+        os.environ["GSETTINGS_SCHEMA_DIR"] = str(schema_dir)
+        if not (schema_dir / "gschemas.compiled").exists():
+            subprocess.run(["glib-compile-schemas", str(schema_dir)], check=False)
 
     app = BrachiographApp()
     return app.run(sys.argv)
