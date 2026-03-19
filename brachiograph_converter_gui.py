@@ -1,3 +1,15 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#   "PySide6>=6.7.0",
+#   "paramiko>=3.3.1",
+#   "cairosvg>=2.7.1",
+#   "numpy>=1.26.0",
+#   "opencv-python>=4.9.8",
+#   "Pillow>=12.1.1",
+# ]
+# ///
+
 # TODO: better help info / commenting
 # TODO: handle image sizing
 # TODO: test on Linux and Windows
@@ -7,7 +19,6 @@
 
 import sys
 import subprocess
-import os
 import json
 from pathlib import Path
 
@@ -19,6 +30,8 @@ import cairosvg
 from linedraw import image_to_json
 
 SIZE_LIMIT = 3 * 1024 * 1024  # 3 MB
+IMAGES_DIR = Path("images")
+TEMP_DIR = Path("temp")
 DEFAULT_SETTINGS = {
     "draw_contours": 2,
     "draw_hatch": 16,
@@ -266,8 +279,7 @@ class BrachiographConverterMainWindow(QMainWindow):
             return
 
         # Check file size
-        file_size = os.path.getsize(image_file)
-        if file_size > SIZE_LIMIT:
+        if Path(image_file).stat().st_size > SIZE_LIMIT:
             QtWidgets.QMessageBox.warning(
                 self,
                 "File Size Warning",
@@ -284,11 +296,12 @@ class BrachiographConverterMainWindow(QMainWindow):
         )
 
         # Display
-        input_svg = Path("images") / f"{Path(image_file).stem}.svg"
-        output_png = Path("temp") / "converted.png"
+        input_svg = IMAGES_DIR / f"{Path(image_file).stem}.svg"
+        output_png = TEMP_DIR / "converted.png"
+        TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
-        with open(str(input_svg), "r") as svg_file:
-            with open(str(output_png), "wb") as png_file:
+        with input_svg.open("r") as svg_file:
+            with output_png.open("wb") as png_file:
                 cairosvg.svg2png(
                     file_obj=svg_file,
                     write_to=png_file,
@@ -310,12 +323,9 @@ class BrachiographConverterMainWindow(QMainWindow):
         )
 
     def browse_json_file(self):
-        images_directory = Path("images")
-        if not images_directory.exists():
-            images_directory.mkdir(parents=True)
-
+        IMAGES_DIR.mkdir(parents=True, exist_ok=True)
         file_name, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Select JSON File", str(images_directory), JSON_EXTENSION
+            self, "Select JSON File", str(IMAGES_DIR), JSON_EXTENSION
         )
         if file_name:
             self.json_file_input.setText(file_name)
@@ -369,19 +379,16 @@ class BrachiographConverterMainWindow(QMainWindow):
             )
 
     def open_images_directory(self):
-        images_directory = Path("images")
-        if not images_directory.exists():
-            images_directory.mkdir(parents=True)
-
-        print(f"Opening directory: {images_directory}")
+        IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+        print(f"Opening directory: {IMAGES_DIR}")
 
         try:
             if sys.platform == "win32":
-                subprocess.Popen(["explorer", str(images_directory)])
+                subprocess.Popen(["explorer", str(IMAGES_DIR)])
             elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(images_directory)])
+                subprocess.Popen(["open", str(IMAGES_DIR)])
             else:
-                subprocess.Popen(["xdg-open", str(images_directory)])
+                subprocess.Popen(["xdg-open", str(IMAGES_DIR)])
         except Exception as exception:
             print(f"Error opening directory: {exception}")
 
@@ -412,11 +419,11 @@ class BrachiographConverterMainWindow(QMainWindow):
     def load_settings(self):
         config_file = CONFIG_FILE
 
-        if os.path.exists(config_file):
-            with open(config_file, "r") as config:
+        try:
+            with config_file.open("r") as config:
                 settings = json.load(config)
-        else:
-            settings = DEFAULT_SETTINGS
+        except FileNotFoundError:
+            settings = DEFAULT_SETTINGS.copy()
             self.save_settings(settings)
 
         self.draw_contours_slider.setValue(settings.get("draw_contours", 2))
