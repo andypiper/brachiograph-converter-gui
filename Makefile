@@ -11,12 +11,15 @@ SCHEMA_XML  := data/$(APP_ID).gschema.xml
 
 .PHONY: sync compile-schemas run install uninstall clean
 
-## Install Python dependencies into the project virtual environment.
-## The venv is created with --system-site-packages so that PyGObject
-## (python3-gi, installed via apt/dnf) is visible inside it.
-sync:
+# Create the venv only when it does not already exist.
+# --system-site-packages exposes the OS-installed PyGObject (python3-gi).
+# Run 'make clean' first if you need to recreate the venv.
+.venv:
 	uv venv --system-site-packages
-	uv sync --frozen --inexact
+
+## Install Python dependencies into the project virtual environment.
+sync: .venv
+	uv sync --inexact
 
 ## Compile the GSettings schema into data/ for development use.
 compile-schemas:

@@ -49,3 +49,6 @@ include = [
 
 [tool.uv]
 package = true
+# Prefer the system Python so that --system-site-packages in the venv
+# correctly picks up PyGObject (python3-gi) installed via the OS package manager.
+python-preference = "only-system"
