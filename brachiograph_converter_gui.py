@@ -104,12 +104,16 @@ class BrachiographWindow(Adw.ApplicationWindow):
         sftp_btn.connect("clicked", self._on_sftp_settings)
         header.pack_end(sftp_btn)
 
+        # Toast overlay wraps all content so toasts appear above everything.
+        self._toast_overlay = Adw.ToastOverlay()
+        toolbar_view.set_content(self._toast_overlay)
+
         root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         root.set_margin_top(12)
         root.set_margin_bottom(12)
         root.set_margin_start(12)
         root.set_margin_end(12)
-        toolbar_view.set_content(root)
+        self._toast_overlay.set_child(root)
 
         # ── Left panel ────────────────────────────────────────────────────────
         left_scroll = Gtk.ScrolledWindow()
@@ -129,34 +133,32 @@ class BrachiographWindow(Adw.ApplicationWindow):
 
         image_list = self._make_list_box()
         left.append(image_list)
-        self.image_entry = Gtk.Entry()
-        self.image_entry.set_placeholder_text("Select an image file…")
-        self._append_file_row(image_list, "Image:", self.image_entry, self._on_browse_image)
+        self.image_entry_row = self._make_entry_row("Image File", self._on_browse_image)
+        image_list.append(self.image_entry_row)
 
         settings_list = self._make_list_box()
         left.append(settings_list)
-
-        self.contours_scale = self._append_scale_row(
-            settings_list,
+        self.contours_spin = self._make_spin_row(
             "Contours",
             "Default 2; smaller = more detail",
             0, 10, 1,
             "draw-contours",
         )
-        self.hatch_scale = self._append_scale_row(
-            settings_list,
+        settings_list.append(self.contours_spin)
+        self.hatch_spin = self._make_spin_row(
             "Hatch",
             "Hatching spacing. Default 16; smaller = more detail",
             1, 100, 1,
             "draw-hatch",
         )
-        self.repeat_scale = self._append_scale_row(
-            settings_list,
+        settings_list.append(self.hatch_spin)
+        self.repeat_spin = self._make_spin_row(
             "Repeat Contours",
             "Times to repeat outer edges. Default 0",
             0, 10, 1,
             "repeat-contours",
         )
+        settings_list.append(self.repeat_spin)
 
         generate_btn = Gtk.Button(label="Generate")
         generate_btn.add_css_class("suggested-action")
@@ -170,9 +172,8 @@ class BrachiographWindow(Adw.ApplicationWindow):
 
         json_list = self._make_list_box()
         left.append(json_list)
-        self.json_entry = Gtk.Entry()
-        self.json_entry.set_placeholder_text("Select a JSON file…")
-        self._append_file_row(json_list, "JSON File:", self.json_entry, self._on_browse_json)
+        self.json_entry_row = self._make_entry_row("JSON File", self._on_browse_json)
+        json_list.append(self.json_entry_row)
 
         upload_btn = Gtk.Button(label="Upload Files")
         upload_btn.connect("clicked", self._on_upload)
@@ -189,20 +190,30 @@ class BrachiographWindow(Adw.ApplicationWindow):
         left.append(spacer)
 
         # ── Right panel: preview ──────────────────────────────────────────────
+        # Stack switches between the empty-state page and the generated image.
+        self._preview_stack = Gtk.Stack()
+        self._preview_stack.set_hexpand(True)
+        self._preview_stack.set_vexpand(True)
+        root.append(self._preview_stack)
+
+        empty_page = Adw.StatusPage()
+        empty_page.set_icon_name("image-x-generic-symbolic")
+        empty_page.set_title("No Preview")
+        empty_page.set_description("Convert an image to see the result here")
+        self._preview_stack.add_named(empty_page, "empty")
+
         self.picture = Gtk.Picture()
         self.picture.set_hexpand(True)
         self.picture.set_vexpand(True)
         self.picture.set_can_shrink(True)
         self.picture.set_content_fit(Gtk.ContentFit.CONTAIN)
         self.picture.add_css_class("card")
-        root.append(self.picture)
-
-        self._set_picture(APP_DIR / "ui" / "blank.png")
+        self._preview_stack.add_named(self.picture, "picture")
 
     @staticmethod
     def _section_label(text: str) -> Gtk.Label:
         lbl = Gtk.Label(label=text)
-        lbl.add_css_class("title-3")
+        lbl.add_css_class("title-4")
         lbl.set_xalign(0)
         lbl.set_margin_top(4)
         return lbl
@@ -214,92 +225,42 @@ class BrachiographWindow(Adw.ApplicationWindow):
         lb.add_css_class("boxed-list")
         return lb
 
-    @staticmethod
-    def _make_list_row(child: Gtk.Widget) -> Gtk.ListBoxRow:
-        row = Gtk.ListBoxRow()
-        row.set_activatable(False)
-        row.set_child(child)
+    def _make_entry_row(self, title: str, callback) -> Adw.EntryRow:
+        """Create an Adw.EntryRow with a flat file-open button suffix."""
+        row = Adw.EntryRow()
+        row.set_title(title)
+        btn = Gtk.Button(icon_name="document-open-symbolic")
+        btn.set_valign(Gtk.Align.CENTER)
+        btn.add_css_class("flat")
+        btn.connect("clicked", callback)
+        row.add_suffix(btn)
         return row
 
-    def _append_file_row(
+    def _make_spin_row(
         self,
-        list_box: Gtk.ListBox,
-        label_text: str,
-        entry: Gtk.Entry,
-        callback,
-    ) -> None:
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        box.set_margin_top(8)
-        box.set_margin_bottom(8)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-
-        lbl = Gtk.Label(label=label_text, xalign=0)
-        lbl.set_size_request(80, -1)
-        box.append(lbl)
-
-        entry.set_hexpand(True)
-        box.append(entry)
-
-        btn = Gtk.Button(label="Browse")
-        btn.set_valign(Gtk.Align.CENTER)
-        btn.connect("clicked", callback)
-        box.append(btn)
-
-        list_box.append(self._make_list_row(box))
-
-    def _append_scale_row(
-        self,
-        list_box: Gtk.ListBox,
         title: str,
-        tooltip: str,
-        min_val: int,
-        max_val: int,
-        step: int,
+        subtitle: str,
+        min_val: float,
+        max_val: float,
+        step: float,
         settings_key: str,
-    ) -> Gtk.Scale:
-        # Initialise from GSettings so the schema default is the single source
-        # of truth — no need for a separate _load_settings pass.
-        initial = self._settings.get_int(settings_key)
-
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        box.set_margin_top(8)
-        box.set_margin_bottom(8)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-
-        lbl = Gtk.Label(label=f"{title}:", xalign=0)
-        lbl.set_size_request(130, -1)
-        lbl.set_tooltip_text(tooltip)
-        box.append(lbl)
-
+    ) -> Adw.SpinRow:
+        """Create an Adw.SpinRow wired to a GSettings integer key."""
         adj = Gtk.Adjustment(
-            value=initial,
+            value=float(self._settings.get_int(settings_key)),
             lower=min_val,
             upper=max_val,
             step_increment=step,
             page_increment=step * 10,
         )
-        scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adj)
-        scale.set_hexpand(True)
-        scale.set_draw_value(False)
-        scale.set_round_digits(0)
-        scale.set_tooltip_text(tooltip)
-        box.append(scale)
-
-        value_lbl = Gtk.Label(label=str(initial))
-        value_lbl.set_size_request(32, -1)
-        value_lbl.set_xalign(1)
-        box.append(value_lbl)
-
-        def on_value_changed(s: Gtk.Scale) -> None:
-            v = int(s.get_value())
-            value_lbl.set_label(str(v))
-            self._settings.set_int(settings_key, v)
-
-        scale.connect("value-changed", on_value_changed)
-        list_box.append(self._make_list_row(box))
-        return scale
+        row = Adw.SpinRow.new(adj, climb_rate=1, digits=0)
+        row.set_title(title)
+        row.set_subtitle(subtitle)
+        row.connect(
+            "notify::value",
+            lambda s, _: self._settings.set_int(settings_key, int(s.get_value())),
+        )
+        return row
 
     # ── Signal handlers ────────────────────────────────────────────────────────
 
@@ -312,7 +273,7 @@ class BrachiographWindow(Adw.ApplicationWindow):
         self._open_file_dialog("Select Image", f, last_dir, self._on_image_chosen)
 
     def _on_image_chosen(self, dialog: Gtk.FileDialog, result: Gio.AsyncResult) -> None:
-        path = self._finish_file_dialog(dialog, result, self.image_entry)
+        path = self._finish_file_dialog(dialog, result, self.image_entry_row)
         if path:
             self._settings.set_string("last-image-directory", str(Path(path).parent))
 
@@ -327,10 +288,10 @@ class BrachiographWindow(Adw.ApplicationWindow):
         )
 
     def _on_json_chosen(self, dialog: Gtk.FileDialog, result: Gio.AsyncResult) -> None:
-        self._finish_file_dialog(dialog, result, self.json_entry)
+        self._finish_file_dialog(dialog, result, self.json_entry_row)
 
     def _on_generate(self, _btn) -> None:
-        image_file = self.image_entry.get_text().strip()
+        image_file = self.image_entry_row.get_text().strip()
         if not image_file:
             self._show_dialog("Image Not Selected", "Please select an image file to convert.")
             return
@@ -349,9 +310,9 @@ class BrachiographWindow(Adw.ApplicationWindow):
         print("Begin JSON generation")
         image_to_json(
             image_file,
-            draw_contours=int(self.contours_scale.get_value()),
-            draw_hatch=int(self.hatch_scale.get_value()),
-            repeat_contours=int(self.repeat_scale.get_value()),
+            draw_contours=int(self.contours_spin.get_value()),
+            draw_hatch=int(self.hatch_spin.get_value()),
+            repeat_contours=int(self.repeat_spin.get_value()),
         )
 
         input_svg = IMAGES_DIR / f"{Path(image_file).stem}.svg"
@@ -373,7 +334,7 @@ class BrachiographWindow(Adw.ApplicationWindow):
         username = self._settings.get_string("sftp-user")
         password = self._settings.get_string("sftp-password")
         remote_directory = self._settings.get_string("sftp-directory")
-        json_file = self.json_entry.get_text().strip()
+        json_file = self.json_entry_row.get_text().strip()
 
         if not json_file:
             self._show_dialog("JSON File Not Selected", "Please select a JSON file to upload.")
@@ -394,7 +355,7 @@ class BrachiographWindow(Adw.ApplicationWindow):
                 with paramiko.SFTPClient.from_transport(transport) as sftp:
                     remote_path = posixpath.join(remote_directory, Path(json_file).name)
                     sftp.put(json_file, remote_path)
-            self._show_dialog("Upload Completed", "File uploaded successfully.")
+            self._show_toast("File uploaded successfully")
         except paramiko.AuthenticationException:
             self._show_dialog(
                 "Authentication Error",
@@ -404,6 +365,9 @@ class BrachiographWindow(Adw.ApplicationWindow):
             self._show_dialog("Upload Error", f"An error occurred: {exc}")
 
     def _on_view_files(self, _btn) -> None:
+        # Create the output directory if it doesn't already exist — the user
+        # is explicitly asking to open it, so creating it here is correct.
+        IMAGES_DIR.mkdir(parents=True, exist_ok=True)
         print(f"Opening directory: {IMAGES_DIR}")
         try:
             if sys.platform == "win32":
@@ -441,7 +405,7 @@ class BrachiographWindow(Adw.ApplicationWindow):
         self,
         dialog: Gtk.FileDialog,
         result: Gio.AsyncResult,
-        entry: Gtk.Entry,
+        entry: Gtk.Editable,
     ) -> str | None:
         try:
             gfile = dialog.open_finish(result)
@@ -454,12 +418,18 @@ class BrachiographWindow(Adw.ApplicationWindow):
 
     def _set_picture(self, path: Path) -> None:
         self.picture.set_file(Gio.File.new_for_path(str(path)))
+        self._preview_stack.set_visible_child_name("picture")
 
     def _show_dialog(self, heading: str, body: str) -> None:
+        """Show a modal alert for errors that require user acknowledgement."""
         dialog = Adw.AlertDialog(heading=heading, body=body)
         dialog.add_response("ok", "OK")
         dialog.set_default_response("ok")
         dialog.present(self)
+
+    def _show_toast(self, message: str) -> None:
+        """Show a transient, non-blocking toast for confirmations."""
+        self._toast_overlay.add_toast(Adw.Toast(title=message))
 
 
 # ── Application ───────────────────────────────────────────────────────────────
@@ -469,6 +439,11 @@ class BrachiographApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID)
         self.connect("activate", self._on_activate)
+
+        quit_action = Gio.SimpleAction.new("quit", None)
+        quit_action.connect("activate", lambda *_: self.quit())
+        self.add_action(quit_action)
+        self.set_accels_for_action("app.quit", ["<primary>q"])
 
     def _on_activate(self, app: "BrachiographApp") -> None:
         window = BrachiographWindow(application=app)
